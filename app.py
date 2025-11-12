@@ -127,19 +127,28 @@ def find_company_by_name(company_name, companies):
     return None
 
 
-def get_first_contact_for_company(access_token, company_id):
-    payload = {"filter": {"company_id": company_id}, "page": {"size": 20, "number": 1}}
-    r = requests.post(
-        f"{TEAMLEADER_API_BASE}/contacts.list",
-        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
-        json=payload
-    )
-    if r.ok:
-        contacts = r.json().get("data") or []
-        if contacts:
-            c = contacts[0]
-            return c.get("id"), c.get("full_name") or f"{c.get('first_name', '')} {c.get('last_name', '')}"
-    return None, None
+def choose_contact_for_company_ui(access_token, company_id):
+    import streamlit as st
+
+    if not company_id:
+        return None, None
+
+    payload = {"filter": {"company_id": company_id}, "page": {"size": 50, "number": 1}}
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    r = requests.post(f"{TEAMLEADER_API_BASE}/contacts.list", headers=headers, json=payload)
+
+    if not r.ok:
+        st.warning(f"⚠️ Fout bij ophalen contacten: {r.text}")
+        return None, None
+
+    contacts = r.json().get("data", [])
+    if not contacts:
+        st.warning("⚠️ Geen contactpersonen gevonden bij dit bedrijf.")
+        return None, None
+
+    options = {c.get("full_name") or f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(): c.get("id") for c in contacts}
+    chosen_name = st.selectbox("👤 Kies contactpersoon:", list(options.keys()))
+    return options[chosen_name], chosen_name
 
 
 def find_lead(access_token, lead_name):
@@ -265,7 +274,7 @@ if uploaded_file:
             if lead_name_excel:
                 lead_id, lead_fullname = find_lead(access_token, lead_name_excel)
             else:
-                lead_id, lead_fullname = get_first_contact_for_company(access_token, company_id)
+                lead_id, lead_fullname = choose_contact_for_company_ui(access_token, company_id)
 
             if not lead_id:
                 st.warning(f"⚠️ Geen contactpersoon voor '{company_name}'.")
@@ -284,6 +293,7 @@ if uploaded_file:
                 st.success(f"✅ Offerte aangemaakt voor deal '{deal_title}'")
             else:
                 st.warning(f"⚠️ Geen offerte aangemaakt voor '{deal_title}'")
+
 
 
 
