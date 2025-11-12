@@ -19,9 +19,6 @@ if password != CORRECT_PASSWORD:
 
 # --- ALS INGELOGD ---
 st.success("✅ Toegang verleend!")
-st.title("Teamleader Offerte Generator")
-
-st.write("Welkom bij de 36 offerte tool.")
 
 # Hier kun je jouw bestaande app-code plaatsen (upload Excel, maak offertes, etc.)
 
@@ -216,7 +213,9 @@ def create_quotation(access_token, deal_id, deal_title, product_lines):
 
 
 # ================== STREAMLIT UI ==================
-st.title("📑 Teamleader Offerte Generator")
+st.title("Teamleader Offerte Generator")
+
+st.write("Welkom bij de 36 offerte tool.")
 
 auth_code = st.text_input("🔐 Voer hier eenmalig de Teamleader Authorization Code in (alleen eerste keer):")
 
@@ -268,6 +267,7 @@ if uploaded_file:
                 st.success(f"✅ Offerte aangemaakt voor deal '{deal_title}'")
             else:
                 st.warning(f"⚠️ Geen offerte aangemaakt voor '{deal_title}'")
+
 
 
 
