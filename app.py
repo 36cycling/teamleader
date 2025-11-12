@@ -21,7 +21,7 @@ if password != CORRECT_PASSWORD:
 st.success("✅ Toegang verleend!")
 st.title("Teamleader Offerte Generator")
 
-st.write("Welkom bij de beveiligde versie van de offerte tool.")
+st.write("Welkom bij de 36 offerte tool.")
 
 # Hier kun je jouw bestaande app-code plaatsen (upload Excel, maak offertes, etc.)
 
@@ -268,6 +268,7 @@ if uploaded_file:
                 st.success(f"✅ Offerte aangemaakt voor deal '{deal_title}'")
             else:
                 st.warning(f"⚠️ Geen offerte aangemaakt voor '{deal_title}'")
+
 
 
 
