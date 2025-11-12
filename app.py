@@ -162,8 +162,8 @@ def create_quotation(access_token, deal_id, deal_title, product_lines):
             "line_items": [
                 {
                     "quantity": int(line.get("Quantity") or 1),
-                    "description": line.get("ProductName"),
-                    "extended_description": f"{line.get('Sizes', '')}   {line.get('Description', '')}".strip(" —"),
+                    "description": f"{line.get('ProductName', '')} {line.get('Sizes', '')}".strip(),
+                    "extended_description": line.get("Description", ""),
                     "unit_price": {"amount": float(line.get("UnitPrice") or 0), "tax": "excluding"},
                     "tax_rate_id": vat_rate_id
                 }
@@ -241,4 +241,5 @@ if uploaded_file:
                 st.success(f"✅ Offerte aangemaakt voor deal '{deal_title}'")
             else:
                 st.warning(f"⚠️ Geen offerte aangemaakt voor '{deal_title}'")
+
 
