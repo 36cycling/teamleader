@@ -94,19 +94,36 @@ def post_json(endpoint, access_token, payload):
 
 
 def get_companies(access_token):
-    r = requests.post(
-        f"{TEAMLEADER_API_BASE}/companies.list",
-        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
-    )
-    if r.ok:
-        return r.json().get("data", [])
-    return []
+    url = f"{TEAMLEADER_API_BASE}/companies.list"
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
 
+    all_companies = []
+    page_number = 1
+    while True:
+        payload = {"page": {"size": 100, "number": page_number}}
+        r = requests.post(url, headers=headers, json=payload)
+        if not r.ok:
+            print("⚠️ Fout bij ophalen bedrijven:", r.text)
+            break
+        data = r.json().get("data", [])
+        if not data:
+            break
+        all_companies.extend(data)
+        if len(data) < 100:
+            break
+        page_number += 1
+
+    print(f"📦 Totaal {len(all_companies)} bedrijven opgehaald.")
+    return all_companies
+
+from difflib import get_close_matches
 
 def find_company_by_name(company_name, companies):
-    for c in companies:
-        if c["name"].strip().lower() == company_name.strip().lower():
-            return c
+    names = [c["name"] for c in companies]
+    matches = get_close_matches(company_name.strip(), names, n=1, cutoff=0.5)
+    if matches:
+        match = matches[0]
+        return next(c for c in companies if c["name"] == match)
     return None
 
 
@@ -267,6 +284,7 @@ if uploaded_file:
                 st.success(f"✅ Offerte aangemaakt voor deal '{deal_title}'")
             else:
                 st.warning(f"⚠️ Geen offerte aangemaakt voor '{deal_title}'")
+
 
 
 
