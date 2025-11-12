@@ -128,8 +128,6 @@ def find_company_by_name(company_name, companies):
 
 
 def choose_contact_for_company_ui(access_token, company_id):
-    import streamlit as st
-
     if not company_id:
         return None, None
 
@@ -146,10 +144,34 @@ def choose_contact_for_company_ui(access_token, company_id):
         st.warning("⚠️ Geen contactpersonen gevonden bij dit bedrijf.")
         return None, None
 
-    options = {c.get("full_name") or f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(): c.get("id") for c in contacts}
-    chosen_name = st.selectbox("👤 Kies contactpersoon:", list(options.keys()))
-    return options[chosen_name], chosen_name
+    # maak lijst met namen en id's
+    contact_options = {
+        c.get("full_name") or f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(): c.get("id")
+        for c in contacts
+    }
 
+    # gebruik sessiestate om te "onthouden"
+    if "selected_contact" not in st.session_state:
+        st.session_state.selected_contact = None
+
+    chosen_name = st.selectbox(
+        "👤 Kies contactpersoon:",
+        ["-- Selecteer contactpersoon --"] + list(contact_options.keys()),
+        key=f"contact_select_{company_id}"
+    )
+
+    # check of er iets gekozen is
+    if chosen_name != "-- Selecteer contactpersoon --":
+        st.session_state.selected_contact = {
+            "id": contact_options[chosen_name],
+            "name": chosen_name
+        }
+        st.success(f"✅ Gekozen: {chosen_name}")
+        return contact_options[chosen_name], chosen_name
+    else:
+        st.info("ℹ️ Kies eerst een contactpersoon om verder te gaan.")
+        return None, None
+        
 
 def find_lead(access_token, lead_name):
     r = requests.get(
@@ -276,6 +298,12 @@ if uploaded_file:
             else:
                 lead_id, lead_fullname = choose_contact_for_company_ui(access_token, company_id)
 
+                if lead_id:
+                    st.write(f"✅ Contactpersoon gekozen: {lead_fullname}")
+                    # hier pas verder met deal/offerte aanmaken
+                else:
+                    st.stop()  # ⛔️ stopt uitvoering tot gebruiker een keuze maakt
+
             if not lead_id:
                 st.warning(f"⚠️ Geen contactpersoon voor '{company_name}'.")
                 continue
@@ -293,6 +321,7 @@ if uploaded_file:
                 st.success(f"✅ Offerte aangemaakt voor deal '{deal_title}'")
             else:
                 st.warning(f"⚠️ Geen offerte aangemaakt voor '{deal_title}'")
+
 
 
 
