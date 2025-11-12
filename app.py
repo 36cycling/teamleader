@@ -1,4 +1,31 @@
 import streamlit as st
+
+# Pagina instellingen
+st.set_page_config(page_title="Teamleader Offerte Tool", page_icon="📄", layout="centered")
+
+# --- LOGIN GEDEELTE ---
+st.sidebar.title("🔒 Inloggen")
+
+# Haal wachtwoord op uit secrets
+CORRECT_PASSWORD = st.secrets["auth"]["password"]
+
+# Vraag gebruiker om wachtwoord
+password = st.sidebar.text_input("Voer wachtwoord in", type="password")
+
+# Controleer wachtwoord
+if password != CORRECT_PASSWORD:
+    st.error("❌ Ongeldig wachtwoord. Toegang geweigerd.")
+    st.stop()
+
+# --- ALS INGELOGD ---
+st.success("✅ Toegang verleend!")
+st.title("Teamleader Offerte Generator")
+
+st.write("Welkom bij de beveiligde versie van de offerte tool.")
+
+# Hier kun je jouw bestaande app-code plaatsen (upload Excel, maak offertes, etc.)
+
+import streamlit as st
 import pandas as pd
 import json
 import requests
@@ -241,5 +268,6 @@ if uploaded_file:
                 st.success(f"✅ Offerte aangemaakt voor deal '{deal_title}'")
             else:
                 st.warning(f"⚠️ Geen offerte aangemaakt voor '{deal_title}'")
+
 
 
