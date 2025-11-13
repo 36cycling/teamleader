@@ -1,46 +1,36 @@
 import streamlit as st
-
-# Pagina instellingen
-st.set_page_config(page_title="Teamleader Offerte Tool", page_icon="📄", layout="centered")
-
-# --- LOGIN GEDEELTE ---
-st.sidebar.title("🔒 Inloggen")
-
-# Haal wachtwoord op uit secrets
-CORRECT_PASSWORD = st.secrets["auth"]["password"]
-
-# Vraag gebruiker om wachtwoord
-password = st.sidebar.text_input("Voer wachtwoord in", type="password")
-
-# Controleer wachtwoord
-if password != CORRECT_PASSWORD:
-    st.error("❌ Ongeldig wachtwoord. Toegang geweigerd.")
-    st.stop()
-
-# --- ALS INGELOGD ---
-st.success("✅ Toegang verleend!")
-
-# Hier kun je jouw bestaande app-code plaatsen (upload Excel, maak offertes, etc.)
-
-import streamlit as st
 import pandas as pd
 import json
 import requests
 import os
+from difflib import get_close_matches
 
-# ================== CONFIG ==================
+# ============ PAGINA-INSTELLINGEN ============
+st.set_page_config(page_title="Teamleader Offerte Tool", page_icon="📄", layout="centered")
+
+# ============ LOGIN =============
+st.sidebar.title("🔒 Inloggen")
+
+CORRECT_PASSWORD = st.secrets["auth"]["password"]
+password = st.sidebar.text_input("Voer wachtwoord in", type="password")
+
+if password != CORRECT_PASSWORD:
+    st.error("❌ Ongeldig wachtwoord. Toegang geweigerd.")
+    st.stop()
+
+st.success("✅ Toegang verleend!")
+
+# ============ TEAMLEADER CONFIG ============
 TEAMLEADER_AUTH_URL = "https://focus.teamleader.eu/oauth2/access_token"
 TEAMLEADER_API_BASE = "https://api.focus.teamleader.eu"
 
-# Je kunt dit beter in Streamlit secrets zetten
 CLIENT_ID = st.secrets["CLIENT_ID"]
 CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 REDIRECT_URI = st.secrets["REDIRECT_URI"]
-
 TOKENS_FILE = "teamleader_tokens.json"
 
 
-# ================== TOKEN FUNCTIES ==================
+# ============ TOKEN FUNCTIES ============
 def save_tokens(access_token, refresh_token):
     with open(TOKENS_FILE, "w") as f:
         json.dump({"access_token": access_token, "refresh_token": refresh_token}, f)
@@ -81,7 +71,7 @@ def get_access_token(auth_code=None):
     return None
 
 
-# ================== HELPER FUNCTIES ==================
+# ============ HELPER FUNCTIES ============
 def post_json(endpoint, access_token, payload):
     url = f"{TEAMLEADER_API_BASE}/{endpoint}"
     headers = {
@@ -89,21 +79,18 @@ def post_json(endpoint, access_token, payload):
         "Accept": "application/json",
         "Content-Type": "application/json"
     }
-    r = requests.post(url, headers=headers, json=payload)
-    return r
-
+    return requests.post(url, headers=headers, json=payload)
 
 def get_companies(access_token):
     url = f"{TEAMLEADER_API_BASE}/companies.list"
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
-
     all_companies = []
     page_number = 1
     while True:
         payload = {"page": {"size": 100, "number": page_number}}
         r = requests.post(url, headers=headers, json=payload)
         if not r.ok:
-            print("⚠️ Fout bij ophalen bedrijven:", r.text)
+            st.warning(f"⚠️ Fout bij ophalen bedrijven: {r.text}")
             break
         data = r.json().get("data", [])
         if not data:
@@ -112,11 +99,8 @@ def get_companies(access_token):
         if len(data) < 100:
             break
         page_number += 1
-
-    print(f"📦 Totaal {len(all_companies)} bedrijven opgehaald.")
+    st.write(f"📦 {len(all_companies)} bedrijven opgehaald.")
     return all_companies
-
-from difflib import get_close_matches
 
 def find_company_by_name(company_name, companies):
     names = [c["name"] for c in companies]
@@ -126,11 +110,7 @@ def find_company_by_name(company_name, companies):
         return next(c for c in companies if c["name"] == match)
     return None
 
-
 def choose_contact_for_company_ui(access_token, company_id):
-    if not company_id:
-        return None, None
-
     payload = {"filter": {"company_id": company_id}, "page": {"size": 50, "number": 1}}
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     r = requests.post(f"{TEAMLEADER_API_BASE}/contacts.list", headers=headers, json=payload)
@@ -144,55 +124,19 @@ def choose_contact_for_company_ui(access_token, company_id):
         st.warning("⚠️ Geen contactpersonen gevonden bij dit bedrijf.")
         return None, None
 
-    # maak lijst met namen en id's
-    contact_options = {
-        c.get("full_name") or f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(): c.get("id")
-        for c in contacts
-    }
+    contact_options = {c.get("full_name"): c.get("id") for c in contacts if c.get("full_name")}
+    chosen_name = st.selectbox("👤 Kies contactpersoon:", ["-- Selecteer --"] + list(contact_options.keys()), key=f"contact_{company_id}")
 
-    # gebruik sessiestate om te "onthouden"
-    if "selected_contact" not in st.session_state:
-        st.session_state.selected_contact = None
-
-    chosen_name = st.selectbox(
-        "👤 Kies contactpersoon:",
-        ["-- Selecteer contactpersoon --"] + list(contact_options.keys()),
-        key=f"contact_select_{company_id}"
-    )
-
-    # check of er iets gekozen is
-    if chosen_name != "-- Selecteer contactpersoon --":
-        st.session_state.selected_contact = {
-            "id": contact_options[chosen_name],
-            "name": chosen_name
-        }
-        st.success(f"✅ Gekozen: {chosen_name}")
+    if chosen_name != "-- Selecteer --":
         return contact_options[chosen_name], chosen_name
-    else:
-        st.info("ℹ️ Kies eerst een contactpersoon om verder te gaan.")
-        return None, None
-        
-
-def find_lead(access_token, lead_name):
-    r = requests.get(
-        f"{TEAMLEADER_API_BASE}/contacts.list",
-        headers={"Authorization": f"Bearer {access_token}"},
-        params={"filter[name]": lead_name}
-    )
-    if not r.ok:
-        return None, None
-    contacts = r.json().get("data") or []
-    for c in contacts:
-        fullname = c.get("full_name") or f"{c.get('first_name', '')} {c.get('last_name', '')}"
-        if fullname.strip().lower() == lead_name.strip().lower():
-            return c.get("id"), fullname
     return None, None
 
 
+# ============ DEAL EN OFFERTE ============
 def create_deal(access_token, company_id, lead_id, title, product_lines):
     lines_payload = [
         {
-            "name": line.get("ProductName") or line.get("name"),
+            "name": line.get("ProductName"),
             "quantity": int(line.get("Quantity") or 1),
             "unit_price": float(line.get("UnitPrice") or 0),
             "vat_rate": int(line.get("VAT rate item") or 21)
@@ -202,10 +146,7 @@ def create_deal(access_token, company_id, lead_id, title, product_lines):
 
     payload = {
         "title": title,
-        "lead": {
-            "customer": {"type": "company", "id": company_id},
-            "contact_person_id": lead_id
-        },
+        "lead": {"customer": {"type": "company", "id": company_id}, "contact_person_id": lead_id},
         "source": {"type": "api"},
         "lines": lines_payload
     }
@@ -213,14 +154,10 @@ def create_deal(access_token, company_id, lead_id, title, product_lines):
     r = post_json("deals.create", access_token, payload)
     return r.json() if r.ok else None
 
-
 def create_quotation(access_token, deal_id, deal_title, product_lines):
-    # haal tax rate ID op
-    r = requests.post(
-        f"{TEAMLEADER_API_BASE}/taxRates.list",
-        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
-        json={}
-    )
+    r = requests.post(f"{TEAMLEADER_API_BASE}/taxRates.list",
+                      headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+                      json={})
     vat_rate_id = None
     if r.ok:
         for tr in r.json().get("data", []):
@@ -228,21 +165,16 @@ def create_quotation(access_token, deal_id, deal_title, product_lines):
                 vat_rate_id = tr["id"]
                 break
 
-    grouped_lines = [
-        {
-            "section": {"title": "Maten hier in te vullen"},
-            "line_items": [
-                {
-                    "quantity": int(line.get("Quantity") or 1),
-                    "description": f"{line.get('ProductName', '')} {line.get('Sizes', '')}".strip(),
-                    "extended_description": line.get("Description", ""),
-                    "unit_price": {"amount": float(line.get("UnitPrice") or 0), "tax": "excluding"},
-                    "tax_rate_id": vat_rate_id
-                }
-                for line in product_lines
-            ]
-        }
-    ]
+    grouped_lines = [{
+        "section": {"title": "Maten hier in te vullen"},
+        "line_items": [{
+            "quantity": int(line.get("Quantity") or 1),
+            "description": f"{line.get('ProductName', '')} {line.get('Sizes', '')}".strip(),
+            "extended_description": line.get("Description", ""),
+            "unit_price": {"amount": float(line.get("UnitPrice") or 0), "tax": "excluding"},
+            "tax_rate_id": vat_rate_id
+        } for line in product_lines]
+    }]
 
     payload = {
         "deal_id": deal_id,
@@ -252,80 +184,77 @@ def create_quotation(access_token, deal_id, deal_title, product_lines):
         "grouped_lines": grouped_lines
     }
 
-    r = requests.post(
-        f"{TEAMLEADER_API_BASE}/quotations.create",
-        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
-        json=payload
-    )
+    r = requests.post(f"{TEAMLEADER_API_BASE}/quotations.create",
+                      headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+                      json=payload)
     return r.json() if r.ok else None
 
 
-# ================== STREAMLIT UI ==================
-st.title("Teamleader Offerte Generator")
+# ============ STREAMLIT FLOW ============
+st.title("📄 Teamleader Offerte Generator")
 
-st.write("Welkom bij de 36 offerte tool.")
+# stap 1 — upload Excel
+uploaded_file = st.file_uploader("📤 Upload Excel-bestand met deals", type=["xlsx"])
+if uploaded_file:
+    st.session_state.df = pd.read_excel(uploaded_file)
+    st.success("✅ Excel geladen!")
+    st.dataframe(st.session_state.df.head())
 
-auth_code = st.text_input("🔐 Voer hier eenmalig de Teamleader Authorization Code in (alleen eerste keer):")
-
+# stap 2 — verbind met Teamleader
+auth_code = st.text_input("🔐 Vul Teamleader Authorization Code in (alleen eerste keer):")
 if st.button("Verbind met Teamleader"):
     token = get_access_token(auth_code)
     if token:
-        st.success("✅ Verbinding gelukt met Teamleader API!")
+        st.session_state.access_token = token
+        st.session_state.connected = True
+        st.success("✅ Verbonden met Teamleader API!")
 
-uploaded_file = st.file_uploader("📤 Upload je Excel-bestand met deals", type=["xlsx"])
+if not st.session_state.get("connected") or "df" not in st.session_state:
+    st.stop()
 
-if uploaded_file:
-    df = pd.read_excel(uploaded_file)
-    st.dataframe(df.head())
+access_token = st.session_state.access_token
+df = st.session_state.df
+companies = get_companies(access_token)
 
-    if st.button("🚀 Start upload naar Teamleader"):
-        access_token = get_access_token()
-        companies = get_companies(access_token)
+# stap 3 — selecteer deal
+deal_titles = df["DealTitle"].unique().tolist()
+chosen_deal = st.selectbox("📦 Kies een deal uit Excel:", deal_titles)
+if not chosen_deal:
+    st.stop()
 
-        for deal_title in df["DealTitle"].unique():
-            deal_rows = df[df["DealTitle"] == deal_title]
-            company_name = deal_rows.iloc[0]["CompanyName"]
+deal_rows = df[df["DealTitle"] == chosen_deal]
+company_name = deal_rows.iloc[0]["CompanyName"]
 
-            company = find_company_by_name(company_name, companies)
-            if not company:
-                st.warning(f"⚠️ Bedrijf '{company_name}' niet gevonden.")
-                continue
-            company_id = company["id"]
+company = find_company_by_name(company_name, companies)
+if not company:
+    st.warning(f"⚠️ Bedrijf '{company_name}' niet gevonden.")
+    st.stop()
 
-            lead_name_excel = deal_rows["LeadName"].iloc[0] if "LeadName" in deal_rows.columns else None
-            if lead_name_excel:
-                lead_id, lead_fullname = find_lead(access_token, lead_name_excel)
-            else:
-                lead_id, lead_fullname = choose_contact_for_company_ui(access_token, company_id)
+company_id = company["id"]
+st.info(f"🏢 Bedrijf gevonden: {company['name']}")
 
-                if lead_id:
-                    st.write(f"✅ Contactpersoon gekozen: {lead_fullname}")
-                    # hier pas verder met deal/offerte aanmaken
-                else:
-                    st.stop()  # ⛔️ stopt uitvoering tot gebruiker een keuze maakt
+# stap 4 — kies contactpersoon
+lead_id, lead_name = choose_contact_for_company_ui(access_token, company_id)
+if lead_id:
+    st.session_state.lead_id = lead_id
+    st.session_state.lead_name = lead_name
+    st.success(f"✅ Contactpersoon gekozen: {lead_name}")
+else:
+    st.stop()
 
-            if not lead_id:
-                st.warning(f"⚠️ Geen contactpersoon voor '{company_name}'.")
-                continue
+# stap 5 — maak deal en offerte
+if st.button("🚀 Maak deal + offerte aan"):
+    product_lines = deal_rows.to_dict(orient="records")
+    deal_response = create_deal(access_token, company_id, lead_id, chosen_deal, product_lines)
 
-            product_lines = deal_rows.to_dict(orient="records")
-            deal_response = create_deal(access_token, company_id, lead_id, deal_title, product_lines)
-            if not deal_response:
-                st.error(f"❌ Deal '{deal_title}' kon niet worden aangemaakt.")
-                continue
+    if not deal_response:
+        st.error(f"❌ Deal '{chosen_deal}' kon niet worden aangemaakt.")
+        st.stop()
 
-            deal_id = deal_response["data"]["id"]
-            quotation_response = create_quotation(access_token, deal_id, deal_title, product_lines)
+    deal_id = deal_response["data"]["id"]
+    quotation_response = create_quotation(access_token, deal_id, chosen_deal, product_lines)
 
-            if quotation_response:
-                st.success(f"✅ Offerte aangemaakt voor deal '{deal_title}'")
-            else:
-                st.warning(f"⚠️ Geen offerte aangemaakt voor '{deal_title}'")
-
-
-
-
-
-
-
-
+    if quotation_response:
+        st.success(f"✅ Offerte aangemaakt voor deal '{chosen_deal}'!")
+    else:
+        st.warning(f"⚠️ Geen offerte aangemaakt voor '{chosen_deal}'.")
