@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Tuple, List, Optional, Dict
 
 # ============ PAGINA-INSTELLINGEN ============
-st.set_page_config(page_title="Teamleader Offerte Tool (Geoptimaliseerd)", page_icon="📄", layout="centered")
+st.set_page_config(page_title="Teamleader Offerte Tool", page_icon="📄", layout="centered")
 
 # ============ CONFIG / SECRETS ============
 # Zorg dat st.secrets de volgende keys bevat:
@@ -456,4 +456,5 @@ if st.button("🚀 Maak deals + offertes aan voor geselecteerde deal(s)"):
                 st.warning(f"⚠️ Offerte kon niet worden aangemaakt voor deal '{deal_title}'")
     progress.progress(100)
     st.balloons()
+
 
