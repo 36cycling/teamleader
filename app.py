@@ -384,7 +384,7 @@ for deal_title in deals_to_process:
         contact_options.append(full)
         contact_map[full] = c.get("id")
 
-    c_key = f"contact_select__{company_id}"
+    c_key = f"contact_select__{company_id}__{deal_title}"
     if c_key not in st.session_state:
         st.session_state[c_key] = "-- Selecteer --"
 
@@ -397,7 +397,7 @@ for deal_title in deals_to_process:
         st.info("Nog geen contact gekozen voor dit bedrijf.")
 
     # Responsible user selectbox (per company)
-    u_key = f"user_select__{company_id}"
+    u_key = f"user_select__{company_id}__{deal_title}"
     if u_key not in st.session_state:
         st.session_state[u_key] = "-- Laat Teamleader kiezen --"
 
@@ -456,3 +456,4 @@ if st.button("🚀 Maak deals + offertes aan voor geselecteerde deal(s)"):
                 st.warning(f"⚠️ Offerte kon niet worden aangemaakt voor deal '{deal_title}'")
     progress.progress(100)
     st.balloons()
+
