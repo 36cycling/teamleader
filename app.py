@@ -263,10 +263,10 @@ with col2:
         st.info("🔌 Verbonden met Teamleader API")
 
 # --- Upload Excel ---
-st.title("Teamleader Offerte Generator (Geoptimaliseerd)")
-st.write("Upload Excel-bestand met deals (kolommen: DealTitle, CompanyName, ProductName, Quantity, UnitPrice, ...).")
+st.title("Teamleader Offerte Generator")
+st.write("Upload Excel-bestand met de DEAL gegevens.")
 
-uploaded_file = st.file_uploader("📤 Upload Excel-bestand met deals", type=["xlsx"])
+uploaded_file = st.file_uploader("📤 Upload Excel-bestand", type=["xlsx"])
 if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
@@ -456,5 +456,6 @@ if st.button("🚀 Maak deals + offertes aan voor geselecteerde deal(s)"):
                 st.warning(f"⚠️ Offerte kon niet worden aangemaakt voor deal '{deal_title}'")
     progress.progress(100)
     st.balloons()
+
 
 
