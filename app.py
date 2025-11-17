@@ -120,7 +120,17 @@ def find_lead(access_token, lead_name):
             return c.get("id"), fullname
     return None, None
 
-def create_deal(access_token, company_id, lead_id, title, product_lines):
+def get_users(access_token):
+    """
+    Haal gebruikers op uit Teamleader. Retourneert lijst van user dicts (of empty list).
+    """
+    r = requests.post(f"{TEAMLEADER_API_BASE}/users.list", headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"}, json={})
+    if not r.ok:
+        st.warning(f"⚠️ Fout bij ophalen users: {r.text}")
+        return []
+    return r.json().get("data", [])
+
+def create_deal(access_token, company_id, lead_id, title, product_lines, responsible_user_id=None):
     lines_payload = [
         {
             "name": line.get("ProductName") or line.get("name"),
@@ -135,6 +145,10 @@ def create_deal(access_token, company_id, lead_id, title, product_lines):
         "source": {"type": "api"},
         "lines": lines_payload
     }
+    # voeg responsible_user_id toe indien aanwezig
+    if responsible_user_id:
+        payload["responsible_user_id"] = responsible_user_id
+
     r = post_json("deals.create", access_token, payload)
     return r.json() if r.ok else None
 
@@ -232,11 +246,21 @@ if deal_choice == "Alle deals":
 else:
     deals_to_process = [deal_choice]
 
-# Show summary and allow choosing contacts per company
-st.markdown("### Stap: kies per bedrijf de contactpersoon die je wilt koppelen")
+# Fetch companies + users once
+companies = get_companies(access_token)
+users = get_users(access_token)  # lijst met user dicts
+user_options = []
+user_map = {}
+for u in users:
+    # compose readable name
+    uname = u.get("full_name") or f"{u.get('first_name','')} {u.get('last_name','')}".strip() or u.get("email") or u.get("id")
+    user_options.append(uname)
+    user_map[uname] = u.get("id")
+
+# Show summary and allow choosing contacts per company + responsible user
+st.markdown("### Stap: kies per bedrijf de contactpersoon (en verantwoordelijke gebruiker) die je wilt koppelen")
 # Prepare mapping of company -> rows
 companies_cache = {}  # company_name -> company object
-companies = get_companies(access_token)
 for deal_title in deals_to_process:
     rows = df[df["DealTitle"] == deal_title]
     company_name = rows.iloc[0]["CompanyName"]
@@ -246,6 +270,7 @@ for deal_title in deals_to_process:
         continue
     company_id = comp["id"]
     st.write(f"**Deal:** {deal_title} — **Bedrijf:** {comp['name']}")
+
     contacts, err = get_contacts_for_company(access_token, company_id)
     if err:
         st.warning(f"Kon contacten niet ophalen voor {comp['name']}: {err}")
@@ -253,24 +278,42 @@ for deal_title in deals_to_process:
     if not contacts:
         st.warning(f"Geen contacten gevonden voor {comp['name']}")
         continue
-    # build options
-    options = []
-    id_map = {}
+
+    # build contact options
+    contact_options = []
+    contact_map = {}
     for c in contacts:
         full = c.get("full_name") or f"{c.get('first_name','')} {c.get('last_name','')}".strip()
-        options.append(full)
-        id_map[full] = c.get("id")
-    key = f"contact_select__{company_id}"
-    # prefill session_state value if exists
-    if key not in st.session_state:
-        st.session_state[key] = "-- Selecteer --"
-    selected = st.selectbox(f"Kies contactpersoon voor {comp['name']}", ["-- Selecteer --"] + options, key=key)
-    if selected != "-- Selecteer --":
-        st.session_state[f"chosen_contact__{company_id}"] = id_map[selected]
-        st.session_state[f"chosen_contact_name__{company_id}"] = selected
-        st.success(f"Gekozen: {selected}")
+        contact_options.append(full)
+        contact_map[full] = c.get("id")
+
+    c_key = f"contact_select__{company_id}"
+    if c_key not in st.session_state:
+        st.session_state[c_key] = "-- Selecteer --"
+
+    selected_contact = st.selectbox(f"Kies contactpersoon voor {comp['name']}", ["-- Selecteer --"] + contact_options, key=c_key)
+    if selected_contact != "-- Selecteer --":
+        st.session_state[f"chosen_contact__{company_id}"] = contact_map[selected_contact]
+        st.session_state[f"chosen_contact_name__{company_id}"] = selected_contact
+        st.success(f"Gekozen contact: {selected_contact}")
     else:
         st.info("Nog geen contact gekozen voor dit bedrijf.")
+
+    # Responsible user selectbox (per company)
+    u_key = f"user_select__{company_id}"
+    if u_key not in st.session_state:
+        st.session_state[u_key] = "-- Selecteer user --"
+
+    # show user dropdown; include an option 'Laat Teamleader kiezen' (None)
+    user_choice = st.selectbox(f"Kies responsible user voor {comp['name']} (optioneel)", ["-- Laat Teamleader kiezen --"] + user_options, key=u_key)
+    if user_choice != "-- Laat Teamleader kiezen --":
+        st.session_state[f"chosen_user__{company_id}"] = user_map.get(user_choice)
+        st.session_state[f"chosen_user_name__{company_id}"] = user_choice
+        st.success(f"Gekozen responsible user: {user_choice}")
+    else:
+        # ensure we clear any previous choice
+        st.session_state.pop(f"chosen_user__{company_id}", None)
+        st.info("Teamleader kiest automatisch verantwoordelijk persoon (geen keuze).")
 
 # --- Final action button ---
 st.markdown("---")
@@ -289,10 +332,14 @@ if st.button("🚀 Maak deals + offertes aan voor geselecteerde deal(s)"):
             st.warning(f"Geen contact gekozen voor bedrijf {comp['name']} — kies een contact en probeer opnieuw.")
             continue
         lead_id = st.session_state[chosen_contact_key]
-        st.info(f"Aanmaken deal '{deal_title}' voor {comp['name']} met contact {st.session_state.get(f'chosen_contact_name__{company_id}','(onbekend)')}")
+        chosen_user_key = f"chosen_user__{company_id}"
+        responsible_user_id = st.session_state.get(chosen_user_key)  # may be None
+
+        st.info(f"Aanmaken deal '{deal_title}' voor {comp['name']} met contact {st.session_state.get(f'chosen_contact_name__{company_id}','(onbekend)')}"
+                + (f" en responsible user {st.session_state.get(f'chosen_user_name__{company_id}')}" if responsible_user_id else ""))
 
         product_lines = rows.to_dict(orient="records")
-        deal_resp = create_deal(access_token, company_id, lead_id, deal_title, product_lines)
+        deal_resp = create_deal(access_token, company_id, lead_id, deal_title, product_lines, responsible_user_id=responsible_user_id)
         if not deal_resp:
             st.error(f"❌ Deal '{deal_title}' kon niet worden aangemaakt voor {comp['name']}.")
             continue
