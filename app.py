@@ -250,9 +250,26 @@ def build_authorization_url():
     )
 
 # --- Connect to Teamleader (access token) ---
+st.sidebar.markdown("### 🔐 Teamleader API verbinden")
+auth_code = st.sidebar.text_input("Voer een nieuwe Authorization Code in")
+
+if st.sidebar.button("🔗 Nieuwe code gebruiken"):
+    token = exchange_or_refresh_token(auth_code)
+    if token:
+        st.session_state.access_token = token
+        st.session_state.connected = True
+        st.success("✅ Verbonden met nieuwe token!")
+    else:
+        st.error("❌ Kon niet verbinden met deze code.")
+
+# Als er nog geen token is, proberen via refresh
 if "access_token" not in st.session_state:
     token = exchange_or_refresh_token(None)
-    if not token:
+    if token:
+        st.session_state.access_token = token
+        st.session_state.connected = True
+    else:
+        # Token verlopen → toon waarschuwing én de link
         auth_url = build_authorization_url()
         st.markdown(
             f"""
@@ -260,15 +277,18 @@ if "access_token" not in st.session_state:
             ⚠️ <strong>Teamleader-token is verlopen of ongeldig.</strong><br><br>
             Klik hieronder om een nieuwe Authorization Code op te halen:<br>
             <a href="{auth_url}" target="_blank"><b>✨ Nieuwe Teamleader Authorization Code ophalen</b></a>
+            <br><br>
+            Vul daarna de code in de linker sidebar in.
             </div>
             """,
             unsafe_allow_html=True
         )
+
         st.session_state.connected = False
         st.stop()
-    else:
-        st.session_state.access_token = token
-        st.session_state.connected = True
+
+# Als token bestaat → verder gaan
+access_token = st.session_state.access_token
 
 
 col1, col2 = st.columns([2,3])
@@ -480,6 +500,7 @@ if st.button("🚀 Maak deals + offertes aan voor geselecteerde deal(s)"):
                 st.warning(f"⚠️ Offerte kon niet worden aangemaakt voor deal '{deal_title}'")
     progress.progress(100)
     st.balloons()
+
 
 
 
