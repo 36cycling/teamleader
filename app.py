@@ -169,7 +169,7 @@ def find_lead_by_exact(access_token: str, lead_name: str) -> Tuple[Optional[str]
             return c.get("id"), fullname
     return None, None
 
-def build_deal_lines(product_lines: List[dict]) -> List[dict]:
+def _deal_lines(product_lines: List[dict]) -> List[dict]:
     out = []
     for line in product_lines:
         try:
@@ -194,7 +194,7 @@ def create_deal(access_token: str, company_id: str, lead_id: str, title: str, pr
         "title": title,
         "lead": {"customer": {"type": "company", "id": company_id}, "contact_person_id": lead_id},
         "source": {"type": "api"},
-        "lines": build_deal_lines(product_lines)
+        "lines": _deal_lines(product_lines)
     }
     if responsible_user_id:
         payload["responsible_user_id"] = responsible_user_id
@@ -253,12 +253,15 @@ def build_authorization_url():
 if "access_token" not in st.session_state:
     token = exchange_or_refresh_token(None)
     if not token:
-        # Token ongeldig of refresh mislukt → toon klikbare link
         auth_url = build_authorization_url()
-        st.warning(
-            f"⚠️ Teamleader-token is verlopen of ongeldig.<br>"
-            f"Klik hieronder om een nieuwe Authorization Code op te halen:<br>"
-            f"<a href='{auth_url}' target='_blank'><b>✨ Nieuwe Teamleader Authorization Code ophalen</b></a>",
+        st.markdown(
+            f"""
+            <div style="padding:10px; border:1px solid #f0ad4e; background:#fcf8e3; border-radius:5px;">
+            ⚠️ <strong>Teamleader-token is verlopen of ongeldig.</strong><br><br>
+            Klik hieronder om een nieuwe Authorization Code op te halen:<br>
+            <a href="{auth_url}" target="_blank"><b>✨ Nieuwe Teamleader Authorization Code ophalen</b></a>
+            </div>
+            """,
             unsafe_allow_html=True
         )
         st.session_state.connected = False
@@ -477,6 +480,7 @@ if st.button("🚀 Maak deals + offertes aan voor geselecteerde deal(s)"):
                 st.warning(f"⚠️ Offerte kon niet worden aangemaakt voor deal '{deal_title}'")
     progress.progress(100)
     st.balloons()
+
 
 
 
