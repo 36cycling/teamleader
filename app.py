@@ -291,21 +291,6 @@ if "access_token" not in st.session_state:
 access_token = st.session_state.access_token
 
 
-col1, col2 = st.columns([2,3])
-with col1:
-    auth_code = st.text_input("🔐 Teamleader Authorization Code (eenmalig)")
-    if st.button("🔗 Verbinden met Teamleader"):
-        token = exchange_or_refresh_token(auth_code if auth_code else None)
-        if token:
-            st.session_state.access_token = token
-            st.session_state.connected = True
-            st.success("✅ Verbonden met Teamleader API!")
-        else:
-            st.error("❌ Kon niet verbinden — controleer auth code of refresh token.")
-with col2:
-    if st.session_state.get("connected"):
-        st.info("🔌 Verbonden met Teamleader API")
-
 # --- Upload Excel ---
 st.title("Teamleader Offerte Generator")
 st.write("Upload Excel-bestand met de DEAL gegevens.")
@@ -500,6 +485,7 @@ if st.button("🚀 Maak deals + offertes aan voor geselecteerde deal(s)"):
                 st.warning(f"⚠️ Offerte kon niet worden aangemaakt voor deal '{deal_title}'")
     progress.progress(100)
     st.balloons()
+
 
 
 
