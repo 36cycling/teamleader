@@ -241,11 +241,32 @@ if password != CORRECT_PASSWORD:
 st.sidebar.success("✅ Ingelogd")
 
 # --- Connect to Teamleader (access token) ---
+def build_authorization_url():
+    client_id = CLIENT_ID
+    redirect_uri = REDIRECT_URI
+    return (
+        "https://focus.teamleader.eu/oauth2/authorize"
+        f"?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}"
+    )
+
+# --- Connect to Teamleader (access token) ---
 if "access_token" not in st.session_state:
-    # try load existing via refresh
     token = exchange_or_refresh_token(None)
-    st.session_state.access_token = token
-    st.session_state.connected = bool(token)
+    if not token:
+        # Token ongeldig of refresh mislukt → toon klikbare link
+        auth_url = build_authorization_url()
+        st.warning(
+            f"⚠️ Teamleader-token is verlopen of ongeldig.<br>"
+            f"Klik hieronder om een nieuwe Authorization Code op te halen:<br>"
+            f"<a href='{auth_url}' target='_blank'><b>✨ Nieuwe Teamleader Authorization Code ophalen</b></a>",
+            unsafe_allow_html=True
+        )
+        st.session_state.connected = False
+        st.stop()
+    else:
+        st.session_state.access_token = token
+        st.session_state.connected = True
+
 
 col1, col2 = st.columns([2,3])
 with col1:
@@ -456,6 +477,7 @@ if st.button("🚀 Maak deals + offertes aan voor geselecteerde deal(s)"):
                 st.warning(f"⚠️ Offerte kon niet worden aangemaakt voor deal '{deal_title}'")
     progress.progress(100)
     st.balloons()
+
 
 
 
