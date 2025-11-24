@@ -7,6 +7,17 @@ import os
 from difflib import get_close_matches
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Tuple, List, Optional, Dict
+query_params = st.query_params
+
+if "oauth_code" in query_params:
+    code = query_params["oauth_code"]
+    token = exchange_or_refresh_token(code)
+    if token:
+        st.session_state.access_token = token
+        st.session_state.connected = True
+        st.success("🔐 Succesvol automatisch verbonden met Teamleader!")
+    else:
+        st.error("Kon autorisatiecode niet verwerken.")
 
 # ============ PAGINA-INSTELLINGEN ============
 st.set_page_config(page_title="Teamleader Offerte Tool", page_icon="📄", layout="centered")
@@ -561,6 +572,7 @@ if st.button("🚀 Maak deals + offertes aan voor geselecteerde deal(s)"):
 
     progress.progress(100)
     st.balloons()
+
 
 
 
