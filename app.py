@@ -15,7 +15,7 @@ CORRECT_PASSWORD = st.secrets["auth"]["password"]
 CLIENT_ID = st.secrets["CLIENT_ID"]
 CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 
-REDIRECT_URI = "http://www.kwatta.com/teamleader_redirect.html"
+REDIRECT_URI = "https://www.kwatta.com/teamleader_redirect.html"
 TEAMLEADER_AUTH_URL = "https://focus.teamleader.eu/oauth2/access_token"
 TEAMLEADER_API_BASE = "https://api.focus.teamleader.eu"
 TOKENS_FILE = "teamleader_tokens.json"
@@ -452,3 +452,4 @@ if st.button("🚀 Maak deals + offertes"):
 
     progress.progress(100)
     st.balloons()
+
