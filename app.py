@@ -243,13 +243,18 @@ def create_deal(access_token, company_id, lead_id, title, lines, user_id=None):
         "title": title,
         "lead": {
             "customer": {"type": "company", "id": company_id},
-            "contact_person_id": lead_id
         },
         "source": {"type": "api"},
         "lines": lines
     }
+
+    # contactpersoon alleen meesturen als je er één hebt
+    if lead_id:
+        payload["lead"]["contact_person_id"] = lead_id
+
     if user_id:
         payload["responsible_user_id"] = user_id
+
     r = post_json("deals.create", access_token, payload)
     return r.json() if r.ok else None
 
@@ -427,10 +432,7 @@ if st.button("🚀 Maak deals + offertes"):
                 continue
 
             company_id = comp["id"]
-            lead_key = f"lead_{company_id}"
-            if lead_key not in st.session_state:
-                st.warning(f"Geen contactpersoon gekozen voor {comp['name']}.")
-                continue
+            lead_id = st.session_state.get(f"lead_{company_id}", None)  # mag None zijn
 
             lead_id = st.session_state[lead_key]
             user_id = st.session_state.get(f"selected_user_id__{company_id}", None)
