@@ -333,8 +333,26 @@ with st.spinner("Bedrijven en users ophalen..."):
     users = cached_users(access_token)
 
 # user dropdown
-user_map = {u.get("full_name") or u.get("email") or u["id"]: u["id"] for u in users}
-user_names = list(user_map.keys())
+user_map = {}
+user_names = []
+
+for u in users:
+    # Bouw een nette naam
+    name_parts = [
+        u.get("first_name", "").strip(),
+        u.get("last_name", "").strip()
+    ]
+    full_name = " ".join(p for p in name_parts if p)
+
+    display_name = (
+        full_name
+        or u.get("full_name")          # fallback
+        or u.get("email")              # laatste redmiddel
+        or f"User {u.get('id')}"
+    )
+
+    user_map[display_name] = u.get("id")
+    user_names.append(display_name)
 
 # CONTACTPERSONEN KIEZEN
 st.header("📇 Contactpersonen per bedrijf kiezen")
@@ -460,5 +478,6 @@ if st.button("🚀 Maak deals + offertes"):
 
     progress.progress(100)
     st.balloons()
+
 
 
