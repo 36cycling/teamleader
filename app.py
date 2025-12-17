@@ -432,11 +432,13 @@ if st.button("🚀 Maak deals + offertes"):
                 continue
 
             company_id = comp["id"]
-            lead_id = st.session_state.get(f"lead_{company_id}", None)  # mag None zijn
 
-            lead_id = st.session_state[lead_key]
+            # contact is optioneel
+            lead_id = st.session_state.get(f"lead_{company_id}", None)
+            
+            # responsible user (met de nieuwe key fix)
             user_id = st.session_state.get(f"selected_user_id__{company_id}", None)
-
+            
             deal_lines = build_deal_lines(rows.to_dict(orient="records"))
 
             # DEAL AANMAKEN
