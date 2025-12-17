@@ -385,18 +385,22 @@ for deal in deals:
         st.session_state[f"leadname_{company_id}"] = chosen_contact
 
     # responsible user
-    u_key = f"user_{company_id}"
+    u_widget_key = f"user_select__{company_id}"  # widget key
     chosen_user = st.selectbox(
         f"Responsible user voor {comp['name']}",
         ["-- Laat Teamleader kiezen --"] + user_names,
-        key=u_key
+        key=u_widget_key
     )
 
+    user_id_key = f"selected_user_id__{company_id}"
+    user_name_key = f"selected_user_name__{company_id}"
+    
     if chosen_user != "-- Laat Teamleader kiezen --":
-        st.session_state[f"user_{company_id}"] = user_map[chosen_user]
-        st.session_state[f"username_{company_id}"] = chosen_user
+        st.session_state[user_id_key] = user_map[chosen_user]
+        st.session_state[user_name_key] = chosen_user
     else:
-        st.session_state.pop(f"user_{company_id}", None)
+        st.session_state.pop(user_id_key, None)
+        st.session_state.pop(user_name_key, None)
 
 
 # =============================================
@@ -429,7 +433,7 @@ if st.button("🚀 Maak deals + offertes"):
                 continue
 
             lead_id = st.session_state[lead_key]
-            user_id = st.session_state.get(f"user_{company_id}", None)
+            user_id = st.session_state.get(f"selected_user_id__{company_id}", None)
 
             deal_lines = build_deal_lines(rows.to_dict(orient="records"))
 
@@ -452,4 +456,5 @@ if st.button("🚀 Maak deals + offertes"):
 
     progress.progress(100)
     st.balloons()
+
 
