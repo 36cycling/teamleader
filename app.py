@@ -313,42 +313,79 @@ def match_product_to_template(product_nl: str, gender_nl: str, template_products
     return None
 
 
-def get_template_lines(deal_id: str) -> tuple:
-    """Haal alle line items op uit de offerte(s) van een deal.
+def get_deal_quotations(deal_id: str) -> List[Dict]:
+    """Haal alle offertes op voor een specifieke deal.
 
-    Returns: (template_products, quotation_names, raw_response)
-    template_products is een lijst van dicts met alleen de velden die we nodig hebben,
+    quotations.list heeft geen betrouwbaar deal_id filter,
+    daarom halen we de deal info op en gebruiken we de quotations referenties daaruit.
+    """
+    # Haal deal info op - deze bevat referenties naar gekoppelde offertes
+    deal_r = post_json("deals.info", {"id": deal_id})
+    if not deal_r.ok:
+        return []
+
+    deal_data = deal_r.json().get("data", {})
+
+    # Zoek quotation referenties in de deal
+    quotation_refs = deal_data.get("quotations", [])
+
+    if not quotation_refs:
+        # Fallback: probeer quotations.list met deal filter
+        # en filter handmatig op deal_id
+        all_quotations = []
+        page = 1
+        while page <= 10:
+            r = post_json("quotations.list", {"page": {"size": 100, "number": page}})
+            if not r.ok:
+                break
+            batch = r.json().get("data", [])
+            if not batch:
+                break
+            for q in batch:
+                if q.get("deal", {}).get("id") == deal_id:
+                    all_quotations.append(q)
+            if len(batch) < 100:
+                break
+            page += 1
+        return all_quotations
+
+    # Haal info op voor elke gekoppelde offerte
+    quotations = []
+    for ref in quotation_refs:
+        q_id = ref.get("id") if isinstance(ref, dict) else ref
+        qr = post_json("quotations.info", {"id": q_id})
+        if qr.ok:
+            quotations.append(qr.json().get("data", {}))
+
+    return quotations
+
+
+def get_quotation_products(quotation_id: str) -> List[Dict]:
+    """Haal alle line items op uit EEN specifieke offerte.
+
+    Returns een lijst van dicts met alleen de velden die we nodig hebben,
     expliciet uit de offerte gehaald (NIET uit de productcatalogus).
     """
-    r = post_json("quotations.list", {"filter": {"deal_id": deal_id}, "page": {"size": 10, "number": 1}})
-    if not r.ok:
-        return [], [], None
+    qr = post_json("quotations.info", {"id": quotation_id})
+    if not qr.ok:
+        return []
 
-    quotations = r.json().get("data", [])
-    quotation_names = [f"{q.get('name', 'Offerte')} (status: {q.get('status', '?')})" for q in quotations]
+    q_data = qr.json().get("data", {})
     template_products = []
 
-    for q in quotations:
-        qr = post_json("quotations.info", {"id": q["id"]})
-        if not qr.ok:
-            continue
-        q_data = qr.json().get("data", {})
-        for group in q_data.get("grouped_lines", []):
-            section_title = group.get("section", {}).get("title", "")
-            for item in group.get("line_items", []):
-                # Expliciet alleen offerte-data gebruiken, NIET product catalogus
-                template_products.append({
-                    "offerte_description": str(item.get("description", "")),
-                    "offerte_extended_description": str(item.get("extended_description", "") or ""),
-                    "offerte_unit_price": float(item.get("unit_price", {}).get("amount", 0)),
-                    "offerte_currency": item.get("unit_price", {}).get("currency", "EUR"),
-                    "offerte_quantity": item.get("quantity", 0),
-                    "offerte_section": section_title,
-                    "offerte_id": q.get("id", ""),
-                    "offerte_name": q.get("name", ""),
-                })
+    for group in q_data.get("grouped_lines", []):
+        section_title = group.get("section", {}).get("title", "")
+        for item in group.get("line_items", []):
+            template_products.append({
+                "offerte_description": str(item.get("description", "")),
+                "offerte_extended_description": str(item.get("extended_description", "") or ""),
+                "offerte_unit_price": float(item.get("unit_price", {}).get("amount", 0)),
+                "offerte_currency": item.get("unit_price", {}).get("currency", "EUR"),
+                "offerte_quantity": item.get("quantity", 0),
+                "offerte_section": section_title,
+            })
 
-    return template_products, quotation_names, None
+    return template_products
 
 
 # =============================================
@@ -467,18 +504,37 @@ if deal_search:
         selected_deal_label = st.selectbox("Selecteer template deal", list(deal_options.keys()))
         template_deal_id = deal_options[selected_deal_label]
 
-        # Haal template line items op uit de OFFERTE (niet uit productcatalogus)
-        with st.spinner("Offerte line items ophalen uit de template deal..."):
-            template_products, quotation_names, _ = get_template_lines(template_deal_id)
+        # Haal offertes op voor deze deal
+        with st.spinner("Offertes ophalen voor deze deal..."):
+            deal_quotations = get_deal_quotations(template_deal_id)
+
+        if not deal_quotations:
+            st.warning("Geen offertes gevonden voor deze deal.")
+            st.stop()
+
+        # Laat gebruiker de specifieke offerte kiezen
+        q_options = {}
+        for q in deal_quotations:
+            q_name = q.get("name", "Naamloos")
+            q_status = q.get("status", "?")
+            q_total = q.get("total", {}).get("tax_exclusive", "?")
+            label = f"{q_name} (status: {q_status}, totaal: {q_total} EUR)"
+            q_options[label] = q["id"]
+
+        st.write(f"**{len(deal_quotations)} offerte(s) gevonden voor deze deal:**")
+        selected_q_label = st.selectbox("Selecteer de template offerte", list(q_options.keys()))
+        selected_q_id = q_options[selected_q_label]
+
+        # Haal line items op uit de GESELECTEERDE offerte
+        with st.spinner("Producten ophalen uit de geselecteerde offerte..."):
+            template_products = get_quotation_products(selected_q_id)
 
         if template_products:
-            st.success(f"{len(template_products)} producten opgehaald uit de template offerte")
-            if quotation_names:
-                st.write(f"**Bron offerte(s):** {', '.join(quotation_names)}")
+            st.success(f"{len(template_products)} producten opgehaald uit offerte: **{selected_q_label}**")
 
             # STAP 3b: Toon de "template database" - expliciet uit de offerte
-            st.subheader("Template productdatabase (uit offerte)")
-            st.write("Deze producten, beschrijvingen en prijzen komen **uit de geselecteerde offerte** en worden gebruikt voor matching:")
+            st.subheader("Template productdatabase (uit geselecteerde offerte)")
+            st.write("Deze producten, beschrijvingen en prijzen komen **uit de hierboven geselecteerde offerte** en worden gebruikt voor matching:")
             template_db_df = pd.DataFrame([{
                 "Product (offerte)": p["offerte_description"],
                 "Beschrijving": p["offerte_extended_description"][:80] + "..." if len(p["offerte_extended_description"]) > 80 else p["offerte_extended_description"],
@@ -490,7 +546,7 @@ if deal_search:
             st.session_state.template_products = template_products
             st.session_state.template_deal_id = template_deal_id
         else:
-            st.warning("Geen offerte/line items gevonden in deze deal. Controleer of de deal een offerte heeft.")
+            st.warning("Geen producten gevonden in deze offerte.")
             st.stop()
     else:
         st.warning("Geen deals gevonden.")
