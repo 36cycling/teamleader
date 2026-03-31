@@ -461,8 +461,26 @@ company_name = st.session_state.csv_company
 
 # --- STAP 2: BEDRIJF ZOEKEN ---
 st.header("2. Bedrijf in Teamleader")
-with st.spinner("Bedrijf zoeken..."):
-    companies = search_companies(st.session_state.access_token, company_name)
+
+# Slim zoeken: probeer eerst de volledige naam, dan losse woorden
+company_search = st.text_input("Zoek bedrijf", value=company_name)
+
+companies = []
+if company_search:
+    # Eerste poging: zoek op volledige naam
+    companies = search_companies(st.session_state.access_token, company_search)
+
+    # Tweede poging: zoek op elk woord apart en combineer resultaten
+    if not companies:
+        words = company_search.strip().split()
+        seen_ids = set()
+        for word in words:
+            if len(word) >= 2:
+                partial = search_companies(st.session_state.access_token, word)
+                for c in partial:
+                    if c["id"] not in seen_ids:
+                        companies.append(c)
+                        seen_ids.add(c["id"])
 
 if companies:
     company_options = {c["name"]: c["id"] for c in companies}
@@ -470,29 +488,38 @@ if companies:
     selected_company_id = company_options[selected_company_name]
     st.success(f"Bedrijf: **{selected_company_name}**")
 else:
-    st.warning(f"Bedrijf '{company_name}' niet gevonden. Zoek handmatig:")
-    manual_search = st.text_input("Zoek bedrijf")
-    if manual_search:
-        companies = search_companies(st.session_state.access_token, manual_search)
-        if companies:
-            company_options = {c["name"]: c["id"] for c in companies}
-            selected_company_name = st.selectbox("Selecteer bedrijf", list(company_options.keys()))
-            selected_company_id = company_options[selected_company_name]
-        else:
-            st.error("Geen bedrijf gevonden.")
-            st.stop()
-    else:
-        st.stop()
+    if company_search:
+        st.warning(f"Geen bedrijf gevonden voor '{company_search}'. Probeer een andere zoekterm.")
+    st.stop()
 
 # --- STAP 3: TEMPLATE DEAL ---
 st.header("3. Template deal selecteren")
 st.write("Zoek de deal die als template dient (producten, beschrijvingen en prijzen worden overgenomen).")
 
-deal_search = st.text_input("Zoek deal (naam of nummer)", value=f"{company_name.split()[0]} TEMPLATE" if company_name else "")
+# Slim suggereren: probeer TEMPLATE zoektermen op basis van bedrijfsnaam
+default_search = ""
+if selected_company_name:
+    # Probeer korte naam af te leiden (eerste woord, of afkorting)
+    parts = selected_company_name.split()
+    if len(parts) >= 2:
+        default_search = f"{parts[0]} TEMPLATE"
+    else:
+        default_search = f"{selected_company_name} TEMPLATE"
+
+deal_search = st.text_input("Zoek deal (naam, nummer of zoekterm)", value=default_search)
 
 if deal_search:
     with st.spinner("Deals zoeken..."):
         deals = search_deals(st.session_state.access_token, deal_search)
+
+    # Als geen resultaten, probeer losse woorden
+    if not deals:
+        words = deal_search.strip().split()
+        for word in words:
+            if len(word) >= 3:
+                deals = search_deals(st.session_state.access_token, word)
+                if deals:
+                    break
 
     if deals:
         deal_options = {}
