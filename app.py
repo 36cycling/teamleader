@@ -771,6 +771,7 @@ if st.button("Maak deal + offerte aan"):
                 "quantity": 0,
                 "description": str(title_text),
                 "unit_price": {"amount": 0, "tax": "excluding"},
+                "tax_rate_id": vat_id,
             })
 
             # Productregel met prijs en beschrijving uit template offerte
