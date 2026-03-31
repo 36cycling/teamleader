@@ -257,10 +257,14 @@ def parse_csv(uploaded_file) -> pd.DataFrame:
 # =============================================
 #   PRODUCT MATCHING
 # =============================================
-def match_product_to_template(product_nl: str, gender_nl: str, template_lines: List[Dict]) -> Optional[Dict]:
-    """Match een Nederlands product naar een template line item."""
+def match_product_to_template(product_nl: str, gender_nl: str, template_products: List[Dict]) -> Optional[Dict]:
+    """Match een Nederlands product naar een template offerte product.
 
-    # Stap 1: Probeer de mapping tabel
+    Matcht ALLEEN tegen offerte_description uit de template offerte,
+    NIET tegen de Teamleader productcatalogus.
+    """
+
+    # Stap 1: Probeer de mapping tabel voor NL→EN vertaling
     product_lower = product_nl.lower().strip()
     english_base = None
     for nl_key, en_value in PRODUCT_MAP.items():
@@ -277,20 +281,21 @@ def match_product_to_template(product_nl: str, gender_nl: str, template_lines: L
     else:
         search_term = product_nl  # fallback
 
-    # Stap 3: Fuzzy match tegen template line items
+    # Stap 3: Fuzzy match tegen offerte beschrijvingen
     best_match = None
     best_score = 0.0
 
-    for line in template_lines:
-        desc = line.get("description", "")
+    for prod in template_products:
+        desc = prod["offerte_description"]
+
         # Exact match
         if search_term.lower() in desc.lower():
-            return line
+            return prod
 
         # Fuzzy score
         score = SequenceMatcher(None, search_term.lower(), desc.lower()).ratio()
 
-        # Bonus als basisprodcutnaam erin zit
+        # Bonus als basisproductnaam erin zit
         if english_base and english_base.lower() in desc.lower():
             score += 0.3
 
@@ -300,7 +305,7 @@ def match_product_to_template(product_nl: str, gender_nl: str, template_lines: L
 
         if score > best_score:
             best_score = score
-            best_match = line
+            best_match = prod
 
     if best_score >= 0.4:
         return best_match
@@ -308,24 +313,42 @@ def match_product_to_template(product_nl: str, gender_nl: str, template_lines: L
     return None
 
 
-def get_template_lines(deal_id: str) -> List[Dict]:
-    """Haal alle line items op uit de offerte(s) van een deal."""
+def get_template_lines(deal_id: str) -> tuple:
+    """Haal alle line items op uit de offerte(s) van een deal.
+
+    Returns: (template_products, quotation_names, raw_response)
+    template_products is een lijst van dicts met alleen de velden die we nodig hebben,
+    expliciet uit de offerte gehaald (NIET uit de productcatalogus).
+    """
     r = post_json("quotations.list", {"filter": {"deal_id": deal_id}, "page": {"size": 10, "number": 1}})
     if not r.ok:
-        return []
+        return [], [], None
 
     quotations = r.json().get("data", [])
-    all_lines = []
+    quotation_names = [f"{q.get('name', 'Offerte')} (status: {q.get('status', '?')})" for q in quotations]
+    template_products = []
 
     for q in quotations:
         qr = post_json("quotations.info", {"id": q["id"]})
         if not qr.ok:
             continue
-        for group in qr.json().get("data", {}).get("grouped_lines", []):
+        q_data = qr.json().get("data", {})
+        for group in q_data.get("grouped_lines", []):
+            section_title = group.get("section", {}).get("title", "")
             for item in group.get("line_items", []):
-                all_lines.append(item)
+                # Expliciet alleen offerte-data gebruiken, NIET product catalogus
+                template_products.append({
+                    "offerte_description": str(item.get("description", "")),
+                    "offerte_extended_description": str(item.get("extended_description", "") or ""),
+                    "offerte_unit_price": float(item.get("unit_price", {}).get("amount", 0)),
+                    "offerte_currency": item.get("unit_price", {}).get("currency", "EUR"),
+                    "offerte_quantity": item.get("quantity", 0),
+                    "offerte_section": section_title,
+                    "offerte_id": q.get("id", ""),
+                    "offerte_name": q.get("name", ""),
+                })
 
-    return all_lines
+    return template_products, quotation_names, None
 
 
 # =============================================
@@ -444,20 +467,30 @@ if deal_search:
         selected_deal_label = st.selectbox("Selecteer template deal", list(deal_options.keys()))
         template_deal_id = deal_options[selected_deal_label]
 
-        # Haal template line items op
-        with st.spinner("Offerte line items ophalen..."):
-            template_lines = get_template_lines(template_deal_id)
+        # Haal template line items op uit de OFFERTE (niet uit productcatalogus)
+        with st.spinner("Offerte line items ophalen uit de template deal..."):
+            template_products, quotation_names, _ = get_template_lines(template_deal_id)
 
-        if template_lines:
-            st.success(f"{len(template_lines)} producten gevonden in de template offerte")
-            with st.expander("Template producten bekijken"):
-                for line in template_lines:
-                    price = line.get("unit_price", {}).get("amount", 0)
-                    st.write(f"- **{line['description']}** — {price:.2f} EUR")
-            st.session_state.template_lines = template_lines
+        if template_products:
+            st.success(f"{len(template_products)} producten opgehaald uit de template offerte")
+            if quotation_names:
+                st.write(f"**Bron offerte(s):** {', '.join(quotation_names)}")
+
+            # STAP 3b: Toon de "template database" - expliciet uit de offerte
+            st.subheader("Template productdatabase (uit offerte)")
+            st.write("Deze producten, beschrijvingen en prijzen komen **uit de geselecteerde offerte** en worden gebruikt voor matching:")
+            template_db_df = pd.DataFrame([{
+                "Product (offerte)": p["offerte_description"],
+                "Beschrijving": p["offerte_extended_description"][:80] + "..." if len(p["offerte_extended_description"]) > 80 else p["offerte_extended_description"],
+                "Prijs (excl BTW)": f"{p['offerte_unit_price']:.2f} EUR",
+                "Sectie": p["offerte_section"],
+            } for p in template_products])
+            st.dataframe(template_db_df, use_container_width=True)
+
+            st.session_state.template_products = template_products
             st.session_state.template_deal_id = template_deal_id
         else:
-            st.warning("Geen offerte/line items gevonden in deze deal.")
+            st.warning("Geen offerte/line items gevonden in deze deal. Controleer of de deal een offerte heeft.")
             st.stop()
     else:
         st.warning("Geen deals gevonden.")
@@ -465,14 +498,14 @@ if deal_search:
 else:
     st.stop()
 
-if "template_lines" not in st.session_state:
+if "template_products" not in st.session_state:
     st.stop()
 
 # --- STAP 4: PRODUCT MATCHING ---
-st.header("4. Product matching")
-st.write("Hieronder zie je hoe de CSV-producten gematcht worden met de template producten.")
+st.header("4. Product matching (CSV → Offerte)")
+st.write("Hieronder zie je hoe de CSV-producten gematcht worden met producten **uit de template offerte**.")
 
-template_lines = st.session_state.template_lines
+template_products = st.session_state.template_products
 matches = []
 unmatched = []
 
@@ -483,7 +516,7 @@ for _, row in unique_products.iterrows():
     product_nl = row["product_nl"]
     gender_nl = row["gender_nl"]
 
-    match = match_product_to_template(product_nl, gender_nl, template_lines)
+    match = match_product_to_template(product_nl, gender_nl, template_products)
 
     display_name = f"{product_nl}"
     if gender_nl:
@@ -494,26 +527,26 @@ for _, row in unique_products.iterrows():
             "csv_product": display_name,
             "product_nl": product_nl,
             "gender_nl": gender_nl,
-            "matched_to": match["description"],
-            "unit_price": match.get("unit_price", {}).get("amount", 0),
-            "extended_description": match.get("extended_description", ""),
-            "template_line": match,
+            "matched_to": match["offerte_description"],
+            "unit_price": match["offerte_unit_price"],
+            "extended_description": match["offerte_extended_description"],
+            "template_product": match,
         })
     else:
         unmatched.append(display_name)
 
 if matches:
-    st.write("**Gevonden matches:**")
+    st.write("**Gevonden matches (bron: template offerte):**")
     match_df = pd.DataFrame([{
         "CSV Product": m["csv_product"],
-        "Template Match": m["matched_to"],
-        "Prijs": f"{m['unit_price']:.2f} EUR",
+        "Offerte Product": m["matched_to"],
+        "Prijs (offerte)": f"{m['unit_price']:.2f} EUR",
     } for m in matches])
     st.dataframe(match_df, use_container_width=True)
 
     # Handmatige correctie mogelijk maken
     st.write("**Pas matches aan indien nodig:**")
-    template_descriptions = ["-- Geen match --"] + [l["description"] for l in template_lines]
+    template_descriptions = ["-- Geen match --"] + [p["offerte_description"] for p in template_products]
 
     corrected_matches = []
     for m in matches:
@@ -530,13 +563,13 @@ if matches:
                 label_visibility="collapsed",
             )
             if corrected != "-- Geen match --":
-                matched_line = next(l for l in template_lines if l["description"] == corrected)
+                matched_prod = next(p for p in template_products if p["offerte_description"] == corrected)
                 corrected_matches.append({
                     **m,
                     "matched_to": corrected,
-                    "unit_price": matched_line.get("unit_price", {}).get("amount", 0),
-                    "extended_description": matched_line.get("extended_description", ""),
-                    "template_line": matched_line,
+                    "unit_price": matched_prod["offerte_unit_price"],
+                    "extended_description": matched_prod["offerte_extended_description"],
+                    "template_product": matched_prod,
                 })
             else:
                 corrected_matches.append(m)
