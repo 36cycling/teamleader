@@ -226,6 +226,11 @@ def parse_csv(uploaded_file) -> pd.DataFrame:
             elif part.startswith("Bestelling:"):
                 order_type = part.replace("Bestelling:", "").strip()
 
+        # Maten samenvatting uit Totaal kolom (bijv. "1 L / 1 2XL")
+        totaal_text = str(row.get("Totaal", "")).strip()
+        if totaal_text == "nan":
+            totaal_text = ""
+
         # Quantities per maat
         for size_col in size_cols:
             qty = row.get(size_col)
@@ -240,6 +245,7 @@ def parse_csv(uploaded_file) -> pd.DataFrame:
                             "order_type": order_type,
                             "size": size_col,
                             "quantity": qty_int,
+                            "totaal_text": totaal_text,
                             "product_raw": product_raw,
                         })
                 except ValueError:
@@ -600,16 +606,21 @@ if st.button("Maak deal + offerte aan"):
                 if not match or match["matched_to"] == "-- Geen match --":
                     continue
 
-                # Maten samenvatting
-                sizes_detail = " / ".join(
-                    f"{r['quantity']} {r['size']}" for _, r in product_rows.iterrows()
-                )
+                # Maten samenvatting uit Totaal kolom
+                totaal_text = product_rows["totaal_text"].iloc[0] if "totaal_text" in product_rows.columns else ""
+                if not totaal_text:
+                    totaal_text = " / ".join(
+                        f"{r['quantity']} {r['size']}" for _, r in product_rows.iterrows()
+                    )
                 total_qty = product_rows["quantity"].sum()
+
+                # Maten voor de beschrijving zetten
+                description = f"{totaal_text} - {match['matched_to']}" if totaal_text else match["matched_to"]
 
                 line_items.append({
                     "quantity": total_qty,
-                    "description": match["matched_to"],
-                    "extended_description": f"{match.get('extended_description', '')}\n\nMaten: {sizes_detail}".strip(),
+                    "description": description,
+                    "extended_description": match.get("extended_description", ""),
                     "unit_price": {
                         "amount": match["unit_price"],
                         "tax": "excluding",
