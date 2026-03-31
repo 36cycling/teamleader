@@ -735,9 +735,8 @@ if st.button("Maak deal + offerte aan"):
                     vat_id = t["id"]
                     break
 
-        # Bouw line items: per product een titelregel (maten) + productregel
+        # Bouw grouped_lines: per product een sectie met subtitel (maten)
         grouped_lines = []
-        line_items = []
 
         # Groepeer per product (alle besteltypes samen)
         for (product_nl, gender_nl), product_rows in parsed.groupby(["product_nl", "gender_nl"]):
@@ -762,38 +761,31 @@ if st.button("Maak deal + offerte aan"):
             # Besteltype(s) samenvatten
             order_types_str = ", ".join(sorted(product_rows["order_type"].unique()))
 
-            # Titelregel met maten
-            title_text = totaal_text if totaal_text else f"{int(total_qty)} stuks"
+            # Subtitel met maten
+            subtitle_text = totaal_text if totaal_text else f"{int(total_qty)} stuks"
             if order_types_str:
-                title_text = f"{title_text} ({order_types_str})"
+                subtitle_text = f"{subtitle_text} ({order_types_str})"
 
-            line_items.append({
-                "quantity": 0,
-                "description": str(title_text),
-                "unit_price": {"amount": 0, "tax": "excluding"},
-                "tax_rate_id": vat_id,
-            })
-
-            # Productregel met prijs en beschrijving uit template offerte
-            line_items.append({
-                "quantity": int(total_qty),
-                "description": str(match["matched_to"]),
-                "extended_description": str(match.get("extended_description", "") or ""),
-                "unit_price": {
-                    "amount": float(match["unit_price"]),
-                    "tax": "excluding",
+            # Elke product als eigen sectie met subtitel
+            grouped_lines.append({
+                "section": {
+                    "title": str(subtitle_text),
                 },
-                "tax_rate_id": vat_id,
+                "line_items": [{
+                    "quantity": int(total_qty),
+                    "description": str(match["matched_to"]),
+                    "extended_description": str(match.get("extended_description", "") or ""),
+                    "unit_price": {
+                        "amount": float(match["unit_price"]),
+                        "tax": "excluding",
+                    },
+                    "tax_rate_id": vat_id,
+                }],
             })
 
-        if not line_items:
+        if not grouped_lines:
             st.error("Geen line items om toe te voegen.")
             st.stop()
-
-        grouped_lines.append({
-            "section": {"title": new_deal_title},
-            "line_items": line_items,
-        })
 
         q_payload = {
             "deal_id": new_deal_id,
