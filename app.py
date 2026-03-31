@@ -193,6 +193,39 @@ def post_json(endpoint, payload):
 # =============================================
 #   CSV PARSER
 # =============================================
+def detect_company_position(df) -> tuple:
+    """Detecteer of het bedrijf het eerste of tweede deel is van de productnaam.
+
+    Het bedrijf is het deel dat HETZELFDE is in alle regels.
+    Het product is het deel dat VERSCHILT per regel.
+    Returns: (company_index, product_index) — bijv. (0, 1) of (1, 0)
+    """
+    first_parts = []
+    second_parts = []
+
+    for _, row in df.iterrows():
+        product_raw = str(row.get("Product", ""))
+        if not product_raw or product_raw == "nan":
+            continue
+        parts = [p.strip() for p in product_raw.split(" - ")]
+        if len(parts) >= 2:
+            # Strip tags zoals *NEW, Geslacht:, Bestelling: voor vergelijking
+            first_parts.append(re.sub(r"\s*\*\w+", "", parts[0]).strip())
+            second_parts.append(re.sub(r"\s*\*\w+", "", parts[1]).strip())
+
+    if not first_parts:
+        return 0, 1
+
+    # Tel unieke waarden: het deel met MINDER unieke waarden is het bedrijf
+    unique_first = len(set(first_parts))
+    unique_second = len(set(second_parts))
+
+    if unique_first <= unique_second:
+        return 0, 1  # Eerste deel = bedrijf (bijv. "Moore DRV - Wielershirt PRO")
+    else:
+        return 1, 0  # Tweede deel = bedrijf (bijv. "Wielershirt Pro - TC Zevenhuizen")
+
+
 def parse_csv(uploaded_file) -> pd.DataFrame:
     """Parse de bestelbon CSV naar een gestructureerd DataFrame."""
     df = pd.read_csv(uploaded_file, sep=";", encoding="utf-8")
@@ -200,27 +233,32 @@ def parse_csv(uploaded_file) -> pd.DataFrame:
     # Eerste kolom is "Product"
     size_cols = [c for c in df.columns if c not in ("Product", "Totaal")]
 
+    # Detecteer of bedrijf het eerste of tweede deel is
+    company_idx, product_idx = detect_company_position(df)
+
     rows = []
     for _, row in df.iterrows():
         product_raw = str(row.get("Product", ""))
         if not product_raw or product_raw == "nan":
             continue
 
-        # Parse productnaam: "Moore DRV - Wielershirt PRO *NEW - Geslacht:Man - Bestelling:Cliënt"
+        # Parse productnaam
         parts = [p.strip() for p in product_raw.split(" - ")]
         if len(parts) < 2:
             continue
 
-        company_name = parts[0]  # "Moore DRV"
-        product_name_raw = parts[1]  # "Wielershirt PRO *NEW"
+        company_name = parts[company_idx]
+        product_name_raw = parts[product_idx]
 
         # Strip *NEW en andere tags
         product_name_clean = re.sub(r"\s*\*\w+", "", product_name_raw).strip()
 
-        # Zoek geslacht
+        # Zoek geslacht en besteltype in alle overige delen
         gender = ""
         order_type = ""
-        for part in parts[2:]:
+        for i, part in enumerate(parts):
+            if i == company_idx or i == product_idx:
+                continue
             if part.startswith("Geslacht:"):
                 gender = part.replace("Geslacht:", "").strip()
             elif part.startswith("Bestelling:"):
