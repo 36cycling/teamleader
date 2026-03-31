@@ -3,12 +3,12 @@ import pandas as pd
 import json
 import requests
 import os
-from difflib import get_close_matches
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Tuple, List, Optional, Dict
+import re
+from typing import Optional, Dict, List
+from difflib import SequenceMatcher
 
 # ============ PAGINA-INSTELLINGEN ============
-st.set_page_config(page_title="Teamleader Offerte Tool", page_icon="📄", layout="centered")
+st.set_page_config(page_title="36 Cycling - Bestelbon Tool", page_icon="🚴", layout="wide")
 
 # ============ CONFIG ============
 CORRECT_PASSWORD = st.secrets["auth"]["password"]
@@ -20,6 +20,37 @@ TEAMLEADER_AUTH_URL = "https://focus.teamleader.eu/oauth2/access_token"
 TEAMLEADER_API_BASE = "https://api.focus.teamleader.eu"
 TOKENS_FILE = "teamleader_tokens.json"
 
+# ============ PRODUCT MAPPING ============
+# Nederlands → Engels productname mapping (zonder geslacht)
+PRODUCT_MAP = {
+    "wielershirt pro": "Cycling Jersey Pro",
+    "wielershirt cadans": "Cycling Jersey Cadans",
+    "wielershirt": "Cycling Jersey",
+    "wielerbroek": "Bib Shorts",
+    "lange wielerbroek": "Bib Tight",
+    "3/4 wielerbroek": "3/4 Bib Tight",
+    "all season jack": "All Season Jacket",
+    "windjack zonder mouwen elaspin": "Wind Vest Elaspin",
+    "windjack zonder mouwen": "Wind Vest",
+    "windjack": "Wind Jacket",
+    "armstukken": "Arm Warmers",
+    "beenstukken": "Leg Warmers",
+    "overschoenen": "Shoe Covers",
+    "wielerhandschoen": "Cycling Gloves",
+    "bandana": "Bandana",
+    "sokken": "Socks",
+    "bidon": "Bottle",
+    "musette": "Musette",
+    "pet": "Cap",
+}
+
+GENDER_MAP = {
+    "man": "Men",
+    "vrouw": "Women",
+    "kind": "Kids",
+}
+
+
 # =============================================
 #   TOKEN STORAGE
 # =============================================
@@ -27,14 +58,16 @@ def save_tokens(access_token: str, refresh_token: str):
     with open(TOKENS_FILE, "w") as f:
         json.dump({"access_token": access_token, "refresh_token": refresh_token}, f)
 
+
 def load_tokens():
     if os.path.exists(TOKENS_FILE):
         try:
             with open(TOKENS_FILE) as f:
                 return json.load(f)
-        except:
+        except Exception:
             return None
     return None
+
 
 # =============================================
 #   EXCHANGE + REFRESH TOKEN
@@ -46,29 +79,21 @@ def exchange_or_refresh_token(auth_code: Optional[str] = None):
     data_base = {
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI
+        "redirect_uri": REDIRECT_URI,
     }
 
-    # TRY REFRESH TOKEN
     if tokens and tokens.get("refresh_token"):
         data = dict(data_base)
-        data.update({
-            "grant_type": "refresh_token",
-            "refresh_token": tokens["refresh_token"]
-        })
+        data.update({"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]})
         r = session.post(TEAMLEADER_AUTH_URL, data=data)
         if r.ok:
             new = r.json()
             save_tokens(new["access_token"], new["refresh_token"])
             return new["access_token"]
 
-    # TRY AUTHORIZATION CODE
     if auth_code:
         data = dict(data_base)
-        data.update({
-            "grant_type": "authorization_code",
-            "code": auth_code
-        })
+        data.update({"grant_type": "authorization_code", "code": auth_code})
         r = session.post(TEAMLEADER_AUTH_URL, data=data)
         if r.ok:
             new = r.json()
@@ -89,29 +114,27 @@ query_params = st.query_params
 if "oauth_code" in query_params:
     code = query_params["oauth_code"]
     token = exchange_or_refresh_token(code)
-
     if token:
         st.session_state.access_token = token
         st.session_state.connected = True
-        st.success("🔐 Succesvol automatisch verbonden met Teamleader!")
+        st.success("Succesvol verbonden met Teamleader!")
     else:
-        st.error("❌ Kon de ontvangen Authorization Code niet omwisselen.")
+        st.error("Kon de Authorization Code niet omwisselen.")
 
 # =============================================
-#   LOGIN — WACHTWOORD
+#   LOGIN
 # =============================================
-st.sidebar.title("🔒 Inloggen")
-password = st.sidebar.text_input("Voer wachtwoord in", type="password")
+st.sidebar.title("Inloggen")
+password = st.sidebar.text_input("Wachtwoord", type="password")
 
 if password != CORRECT_PASSWORD:
-    st.sidebar.error("❌ Ongeldig wachtwoord.")
+    st.sidebar.error("Ongeldig wachtwoord.")
     st.stop()
 
-st.sidebar.success("✅ Ingelogd")
-
+st.sidebar.success("Ingelogd")
 
 # =============================================
-#   INITIAL TOKEN VIA REFRESH
+#   INITIAL TOKEN
 # =============================================
 if "access_token" not in st.session_state:
     token = exchange_or_refresh_token(None)
@@ -121,33 +144,22 @@ if "access_token" not in st.session_state:
     else:
         st.session_state.connected = False
 
-# =============================================
-#   ZO NIET VERBONDEN → AUTOMATISCH TEAMLEADER OPENEN
-# =============================================
+
 def teamleader_oauth_url():
     return (
         "https://focus.teamleader.eu/oauth2/authorize"
         f"?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
     )
 
+
 if not st.session_state.get("connected"):
     auth_url = teamleader_oauth_url()
-
     st.markdown(
         f"""
         <div style="padding:12px; background:#fff7cc; border-left:4px solid #ffa500; border-radius:5px;">
         <b>Teamleader moet opnieuw autoriseren.</b><br><br>
-        We openen automatisch Teamleader zodat je kunt inloggen.
-        Als dit niet werkt, <a href="{auth_url}" target="_blank"><b>klik hier</b></a>.
+        <a href="{auth_url}" target="_blank"><b>Klik hier om te verbinden</b></a>.
         </div>
-
-        <script>
-        try {{
-            window.open("{auth_url}", "_blank");
-        }} catch (e) {{
-            console.log("Popup blokkade:", e);
-        }}
-        </script>
         """,
         unsafe_allow_html=True,
     )
@@ -157,327 +169,476 @@ if not st.session_state.get("connected"):
 # =============================================
 #   API HELPERS
 # =============================================
-def _headers(access_token, json_mode=False):
-    h = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json"
-    }
-    if json_mode:
-        h["Content-Type"] = "application/json"
-    return h
-
-def post_json(endpoint, access_token, payload):
+def post_json(endpoint, payload):
+    token = st.session_state.access_token
     url = f"{TEAMLEADER_API_BASE}/{endpoint}"
-    return requests.post(url, json=payload, headers=_headers(access_token, True))
-
-def get_json(endpoint, access_token, params=None):
-    url = f"{TEAMLEADER_API_BASE}/{endpoint}"
-    return requests.get(url, params=params, headers=_headers(access_token))
+    r = requests.post(
+        url,
+        json=payload,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    if r.status_code == 401:
+        # Token expired, try refresh
+        new_token = exchange_or_refresh_token(None)
+        if new_token:
+            st.session_state.access_token = new_token
+            r = requests.post(
+                url,
+                json=payload,
+                headers={"Authorization": f"Bearer {new_token}", "Content-Type": "application/json"},
+            )
+    return r
 
 
 # =============================================
-#   CACHED API CALLS
+#   CSV PARSER
+# =============================================
+def parse_csv(uploaded_file) -> pd.DataFrame:
+    """Parse de bestelbon CSV naar een gestructureerd DataFrame."""
+    df = pd.read_csv(uploaded_file, sep=";", encoding="utf-8")
+
+    # Eerste kolom is "Product"
+    size_cols = [c for c in df.columns if c not in ("Product", "Totaal")]
+
+    rows = []
+    for _, row in df.iterrows():
+        product_raw = str(row.get("Product", ""))
+        if not product_raw or product_raw == "nan":
+            continue
+
+        # Parse productnaam: "Moore DRV - Wielershirt PRO *NEW - Geslacht:Man - Bestelling:Cliënt"
+        parts = [p.strip() for p in product_raw.split(" - ")]
+        if len(parts) < 2:
+            continue
+
+        company_name = parts[0]  # "Moore DRV"
+        product_name_raw = parts[1]  # "Wielershirt PRO *NEW"
+
+        # Strip *NEW en andere tags
+        product_name_clean = re.sub(r"\s*\*\w+", "", product_name_raw).strip()
+
+        # Zoek geslacht
+        gender = ""
+        order_type = ""
+        for part in parts[2:]:
+            if part.startswith("Geslacht:"):
+                gender = part.replace("Geslacht:", "").strip()
+            elif part.startswith("Bestelling:"):
+                order_type = part.replace("Bestelling:", "").strip()
+
+        # Quantities per maat
+        for size_col in size_cols:
+            qty = row.get(size_col)
+            if pd.notna(qty) and str(qty).strip() and str(qty).strip() != "0":
+                try:
+                    qty_int = int(float(str(qty).strip()))
+                    if qty_int > 0:
+                        rows.append({
+                            "company": company_name,
+                            "product_nl": product_name_clean,
+                            "gender_nl": gender,
+                            "order_type": order_type,
+                            "size": size_col,
+                            "quantity": qty_int,
+                            "product_raw": product_raw,
+                        })
+                except ValueError:
+                    pass
+
+    return pd.DataFrame(rows)
+
+
+# =============================================
+#   PRODUCT MATCHING
+# =============================================
+def match_product_to_template(product_nl: str, gender_nl: str, template_lines: List[Dict]) -> Optional[Dict]:
+    """Match een Nederlands product naar een template line item."""
+
+    # Stap 1: Probeer de mapping tabel
+    product_lower = product_nl.lower().strip()
+    english_base = None
+    for nl_key, en_value in PRODUCT_MAP.items():
+        if nl_key in product_lower:
+            english_base = en_value
+            break
+
+    # Stap 2: Voeg geslacht toe
+    gender_en = GENDER_MAP.get(gender_nl.lower(), "") if gender_nl else ""
+    if english_base and gender_en:
+        search_term = f"{english_base} - {gender_en}"
+    elif english_base:
+        search_term = english_base
+    else:
+        search_term = product_nl  # fallback
+
+    # Stap 3: Fuzzy match tegen template line items
+    best_match = None
+    best_score = 0.0
+
+    for line in template_lines:
+        desc = line.get("description", "")
+        # Exact match
+        if search_term.lower() in desc.lower():
+            return line
+
+        # Fuzzy score
+        score = SequenceMatcher(None, search_term.lower(), desc.lower()).ratio()
+
+        # Bonus als basisprodcutnaam erin zit
+        if english_base and english_base.lower() in desc.lower():
+            score += 0.3
+
+        # Bonus als geslacht matcht
+        if gender_en and gender_en.lower() in desc.lower():
+            score += 0.2
+
+        if score > best_score:
+            best_score = score
+            best_match = line
+
+    if best_score >= 0.4:
+        return best_match
+
+    return None
+
+
+def get_template_lines(deal_id: str) -> List[Dict]:
+    """Haal alle line items op uit de offerte(s) van een deal."""
+    r = post_json("quotations.list", {"filter": {"deal_id": deal_id}, "page": {"size": 10, "number": 1}})
+    if not r.ok:
+        return []
+
+    quotations = r.json().get("data", [])
+    all_lines = []
+
+    for q in quotations:
+        qr = post_json("quotations.info", {"id": q["id"]})
+        if not qr.ok:
+            continue
+        for group in qr.json().get("data", {}).get("grouped_lines", []):
+            for item in group.get("line_items", []):
+                all_lines.append(item)
+
+    return all_lines
+
+
+# =============================================
+#   DEAL SEARCH
 # =============================================
 @st.cache_data(show_spinner=False)
-def cached_companies(access_token):
-    data = []
-    page = 1
-    while True:
-        r = post_json("companies.list", access_token, {"page": {"size": 100, "number": page}})
-        if not r.ok:
-            break
-        rows = r.json().get("data", [])
-        if not rows:
-            break
-        data.extend(rows)
-        if len(rows) < 100:
-            break
-        page += 1
-    return data
-
-@st.cache_data(show_spinner=False)
-def cached_users(access_token):
-    r = post_json("users.list", access_token, {})
+def search_deals(access_token, term):
+    """Zoek deals op basis van een zoekterm."""
+    r = post_json("deals.list", {"filter": {"term": term}, "page": {"size": 20, "number": 1}})
     if not r.ok:
         return []
     return r.json().get("data", [])
 
+
 @st.cache_data(show_spinner=False)
-def cached_contacts(access_token, company_id):
-    r = post_json(
-        "contacts.list",
-        access_token,
-        {"filter": {"company_id": company_id}, "page": {"size": 50, "number": 1}},
-    )
+def search_companies(access_token, term):
+    """Zoek bedrijven."""
+    r = post_json("companies.list", {"filter": {"term": term}, "page": {"size": 10, "number": 1}})
     if not r.ok:
-        return [], "Fout bij ophalen"
-    return r.json().get("data", []), None
+        return []
+    return r.json().get("data", [])
+
+
+@st.cache_data(show_spinner=False)
+def get_deal_info(access_token, deal_id):
+    """Haal deal details op."""
+    r = post_json("deals.info", {"id": deal_id})
+    if not r.ok:
+        return None
+    return r.json().get("data")
 
 
 # =============================================
-#   HELPER FUNCTIES
+#   UI — HOOFDAPP
 # =============================================
-def fuzzy_company(name, companies):
-    names = [c["name"] for c in companies]
-    match = get_close_matches(name, names, n=1, cutoff=0.5)
-    if match:
-        return next(c for c in companies if c["name"] == match[0])
-    return None
+st.title("36 Cycling - Bestelbon Tool")
+st.write("Upload een bestelbon CSV, selecteer een template deal, en maak automatisch een nieuwe deal + offerte aan.")
 
-def build_deal_lines(product_lines):
-    out = []
-    for line in product_lines:
-        qty = int(line.get("Quantity", 1))
-        price = float(line.get("UnitPrice", 0))
-        vat = int(line.get("VAT rate item", 21))
-        out.append({
-            "name": line.get("ProductName") or line.get("name"),
-            "quantity": qty,
-            "unit_price": price,
-            "vat_rate": vat
-        })
-    return out
-
-def create_deal(access_token, company_id, lead_id, title, lines, user_id=None):
-    payload = {
-        "title": title,
-        "lead": {
-            "customer": {"type": "company", "id": company_id},
-        },
-        "source": {"type": "api"},
-        "lines": lines
-    }
-
-    # contactpersoon alleen meesturen als je er één hebt
-    if lead_id:
-        payload["lead"]["contact_person_id"] = lead_id
-
-    if user_id:
-        payload["responsible_user_id"] = user_id
-
-    r = post_json("deals.create", access_token, payload)
-    return r.json() if r.ok else None
-
-def create_quotation(access_token, deal_id, deal_title, product_lines):
-    # vat rate id
-    vat_id = None
-    r = post_json("taxRates.list", access_token, {})
-    if r.ok:
-        for t in r.json().get("data", []):
-            if abs(t.get("rate", 0) - 0.21) < 0.001:
-                vat_id = t["id"]
-                break
-
-    grouped = [{
-        "section": {"title": "Maten hier in te vullen"},
-        "line_items": [{
-            "quantity": int(p.get("Quantity", 1)),
-            "description": f"{p.get('ProductName','')} {p.get('Sizes','')}",
-            "extended_description": p.get("Description", ""),
-            "unit_price": {"amount": float(p.get("UnitPrice", 0)), "tax": "excluding"},
-            "tax_rate_id": vat_id
-        } for p in product_lines]
-    }]
-
-    payload = {
-        "deal_id": deal_id,
-        "title": deal_title,
-        "text": f"Offerte voor deal '{deal_title}'",
-        "currency": {"code": "EUR", "exchange_rate": 1.0},
-        "grouped_lines": grouped
-    }
-
-    rr = post_json("quotations.create", access_token, payload)
-    return rr.json() if rr.ok else None
-
-
-# =============================================
-#   UI — APP
-# =============================================
-st.title("Teamleader Offerte Generator")
-st.write("Upload Excel met minimaal kolommen: **DealTitle** en **CompanyName**.")
-
-uploaded_file = st.file_uploader("📤 Upload Excel-bestand", type=["xlsx"])
+# --- STAP 1: CSV UPLOAD ---
+st.header("1. Upload bestelbon")
+uploaded_file = st.file_uploader("Upload CSV bestand", type=["csv"])
 
 if uploaded_file:
-    df = pd.read_excel(uploaded_file)
-    if "DealTitle" not in df or "CompanyName" not in df:
-        st.error("Excel mist kolommen: DealTitle en/of CompanyName.")
+    try:
+        parsed = parse_csv(uploaded_file)
+        st.session_state.parsed_csv = parsed
+        if len(parsed) == 0:
+            st.error("Geen producten gevonden in de CSV.")
+            st.stop()
+        st.success(f"{len(parsed)} productregels gevonden")
+
+        # Toon samenvatting
+        company = parsed["company"].iloc[0] if len(parsed) > 0 else "Onbekend"
+        st.session_state.csv_company = company
+        st.write(f"**Bedrijf:** {company}")
+
+        # Groepeer per product + geslacht
+        summary = parsed.groupby(["product_nl", "gender_nl", "order_type"]).agg(
+            total_qty=("quantity", "sum"),
+            sizes=("size", lambda x: ", ".join(f"{s}" for s in x)),
+        ).reset_index()
+        st.dataframe(summary, use_container_width=True)
+    except Exception as e:
+        st.error(f"Fout bij het parsen van de CSV: {e}")
         st.stop()
-    st.session_state.df = df
-    st.success("Excel geladen")
-    st.dataframe(df.head())
 
-if "df" not in st.session_state:
-    st.info("Upload een Excel-bestand om verder te gaan.")
+if "parsed_csv" not in st.session_state:
+    st.info("Upload een CSV bestand om te beginnen.")
     st.stop()
 
-df = st.session_state.df
-access_token = st.session_state.access_token
+parsed = st.session_state.parsed_csv
+company_name = st.session_state.csv_company
 
-# DEAL SELECTIE
-deal_titles = df["DealTitle"].astype(str).unique().tolist()
-choice = st.selectbox("📦 Kies een deal (of 'Alle deals'):", ["-- Selecteer --"] + deal_titles + ["Alle deals"])
+# --- STAP 2: BEDRIJF ZOEKEN ---
+st.header("2. Bedrijf in Teamleader")
+with st.spinner("Bedrijf zoeken..."):
+    companies = search_companies(st.session_state.access_token, company_name)
 
-if choice == "-- Selecteer --":
-    st.stop()
-
-if choice == "Alle deals":
-    deals = deal_titles
+if companies:
+    company_options = {c["name"]: c["id"] for c in companies}
+    selected_company_name = st.selectbox("Selecteer bedrijf", list(company_options.keys()))
+    selected_company_id = company_options[selected_company_name]
+    st.success(f"Bedrijf: **{selected_company_name}**")
 else:
-    deals = [choice]
-
-# LOAD COMPANIES & USERS
-with st.spinner("Bedrijven en users ophalen..."):
-    companies = cached_companies(access_token)
-    users = cached_users(access_token)
-
-# user dropdown
-user_map = {}
-user_names = []
-
-for u in users:
-    # Bouw een nette naam
-    name_parts = [
-        u.get("first_name", "").strip(),
-        u.get("last_name", "").strip()
-    ]
-    full_name = " ".join(p for p in name_parts if p)
-
-    display_name = (
-        full_name
-        or u.get("full_name")          # fallback
-        or u.get("email")              # laatste redmiddel
-        or f"User {u.get('id')}"
-    )
-
-    user_map[display_name] = u.get("id")
-    user_names.append(display_name)
-
-# CONTACTPERSONEN KIEZEN
-st.header("📇 Contactpersonen per bedrijf kiezen")
-
-company_lookup = {}
-for deal in deals:
-    cname = df[df["DealTitle"] == deal].iloc[0]["CompanyName"]
-    company_lookup[deal] = cname
-
-# fuzzy match
-company_match = {name: fuzzy_company(name, companies) for name in company_lookup.values()}
-
-# contacts fetchen
-contacts_cache = {}
-for comp in company_match.values():
-    if comp:
-        contacts_cache[comp["id"]] = cached_contacts(access_token, comp["id"])
-
-for deal in deals:
-    cname = company_lookup[deal]
-    comp = company_match[cname]
-
-    st.subheader(f"Deal: {deal}")
-    if not comp:
-        st.warning(f"Bedrijf '{cname}' niet gevonden.")
-        continue
-
-    company_id = comp["id"]
-    st.write(f"Teamleader bedrijf: **{comp['name']}**")
-
-    contact_list, err = contacts_cache.get(company_id, ([], None))
-    if err:
-        st.warning(f"Fout bij ophalen contacten: {err}")
-        continue
-
-    # contact select
-    contact_names = []
-    contact_map = {}
-    for c in contact_list:
-        nm = c.get("full_name") or f"{c.get('first_name','')} {c.get('last_name','')}"
-        contact_names.append(nm)
-        contact_map[nm] = c["id"]
-
-    c_key = f"contact_{company_id}"
-    chosen_contact = st.selectbox(
-        f"Contactpersoon voor {comp['name']}",
-        ["-- Selecteer --"] + contact_names,
-        key=c_key
-    )
-
-    if chosen_contact != "-- Selecteer --":
-        st.session_state[f"lead_{company_id}"] = contact_map[chosen_contact]
-        st.session_state[f"leadname_{company_id}"] = chosen_contact
-
-    # responsible user
-    u_widget_key = f"user_select__{company_id}"  # widget key
-    chosen_user = st.selectbox(
-        f"Responsible user voor {comp['name']}",
-        ["-- Laat Teamleader kiezen --"] + user_names,
-        key=u_widget_key
-    )
-
-    user_id_key = f"selected_user_id__{company_id}"
-    user_name_key = f"selected_user_name__{company_id}"
-    
-    if chosen_user != "-- Laat Teamleader kiezen --":
-        st.session_state[user_id_key] = user_map[chosen_user]
-        st.session_state[user_name_key] = chosen_user
+    st.warning(f"Bedrijf '{company_name}' niet gevonden. Zoek handmatig:")
+    manual_search = st.text_input("Zoek bedrijf")
+    if manual_search:
+        companies = search_companies(st.session_state.access_token, manual_search)
+        if companies:
+            company_options = {c["name"]: c["id"] for c in companies}
+            selected_company_name = st.selectbox("Selecteer bedrijf", list(company_options.keys()))
+            selected_company_id = company_options[selected_company_name]
+        else:
+            st.error("Geen bedrijf gevonden.")
+            st.stop()
     else:
-        st.session_state.pop(user_id_key, None)
-        st.session_state.pop(user_name_key, None)
+        st.stop()
 
+# --- STAP 3: TEMPLATE DEAL ---
+st.header("3. Template deal selecteren")
+st.write("Zoek de deal die als template dient (producten, beschrijvingen en prijzen worden overgenomen).")
 
-# =============================================
-#   UITVOER — DEALS AANMAKEN
-# =============================================
-st.markdown("---")
+deal_search = st.text_input("Zoek deal (naam of nummer)", value=f"{company_name.split()[0]} TEMPLATE" if company_name else "")
 
-if st.button("🚀 Maak deals + offertes"):
-    total = len(deals)
-    progress = st.progress(0)
-    i = 0
+if deal_search:
+    with st.spinner("Deals zoeken..."):
+        deals = search_deals(st.session_state.access_token, deal_search)
 
-    with st.spinner("Deals aanmaken..."):
-        for deal in deals:
-            i += 1
-            progress.progress(int(i / total * 100))
+    if deals:
+        deal_options = {}
+        for d in deals:
+            ref = d.get("reference", "")
+            label = f"Deal {ref}: {d['title']}" if ref else d["title"]
+            deal_options[label] = d["id"]
 
-            rows = df[df["DealTitle"] == deal]
-            cname = rows.iloc[0]["CompanyName"]
-            comp = company_match[cname]
+        selected_deal_label = st.selectbox("Selecteer template deal", list(deal_options.keys()))
+        template_deal_id = deal_options[selected_deal_label]
 
-            if not comp:
-                st.error(f"Bedrijf {cname} niet gevonden.")
-                continue
+        # Haal template line items op
+        with st.spinner("Offerte line items ophalen..."):
+            template_lines = get_template_lines(template_deal_id)
 
-            company_id = comp["id"]
+        if template_lines:
+            st.success(f"{len(template_lines)} producten gevonden in de template offerte")
+            with st.expander("Template producten bekijken"):
+                for line in template_lines:
+                    price = line.get("unit_price", {}).get("amount", 0)
+                    st.write(f"- **{line['description']}** — {price:.2f} EUR")
+            st.session_state.template_lines = template_lines
+            st.session_state.template_deal_id = template_deal_id
+        else:
+            st.warning("Geen offerte/line items gevonden in deze deal.")
+            st.stop()
+    else:
+        st.warning("Geen deals gevonden.")
+        st.stop()
+else:
+    st.stop()
 
-            # contact is optioneel
-            lead_id = st.session_state.get(f"lead_{company_id}", None)
-            
-            # responsible user (met de nieuwe key fix)
-            user_id = st.session_state.get(f"selected_user_id__{company_id}", None)
-            
-            deal_lines = build_deal_lines(rows.to_dict(orient="records"))
+if "template_lines" not in st.session_state:
+    st.stop()
 
-            # DEAL AANMAKEN
-            resp = create_deal(access_token, company_id, lead_id, deal, deal_lines, user_id=user_id)
-            if not resp:
-                st.error(f"❌ Deal '{deal}' kon niet worden aangemaakt.")
-                continue
+# --- STAP 4: PRODUCT MATCHING ---
+st.header("4. Product matching")
+st.write("Hieronder zie je hoe de CSV-producten gematcht worden met de template producten.")
 
-            deal_id = resp.get("data", {}).get("id")
-            st.success(f"Deal '{deal}' aangemaakt (ID={deal_id})")
+template_lines = st.session_state.template_lines
+matches = []
+unmatched = []
 
-            # OFFERTE
-            q = create_quotation(access_token, deal_id, deal, rows.to_dict(orient="records"))
-            if q:
-                qid = q.get("data", {}).get("id")
-                st.success(f"Offerte aangemaakt (ID={qid})")
+# Unieke producten uit CSV
+unique_products = parsed[["product_nl", "gender_nl"]].drop_duplicates()
+
+for _, row in unique_products.iterrows():
+    product_nl = row["product_nl"]
+    gender_nl = row["gender_nl"]
+
+    match = match_product_to_template(product_nl, gender_nl, template_lines)
+
+    display_name = f"{product_nl}"
+    if gender_nl:
+        display_name += f" ({gender_nl})"
+
+    if match:
+        matches.append({
+            "csv_product": display_name,
+            "product_nl": product_nl,
+            "gender_nl": gender_nl,
+            "matched_to": match["description"],
+            "unit_price": match.get("unit_price", {}).get("amount", 0),
+            "extended_description": match.get("extended_description", ""),
+            "template_line": match,
+        })
+    else:
+        unmatched.append(display_name)
+
+if matches:
+    st.write("**Gevonden matches:**")
+    match_df = pd.DataFrame([{
+        "CSV Product": m["csv_product"],
+        "Template Match": m["matched_to"],
+        "Prijs": f"{m['unit_price']:.2f} EUR",
+    } for m in matches])
+    st.dataframe(match_df, use_container_width=True)
+
+    # Handmatige correctie mogelijk maken
+    st.write("**Pas matches aan indien nodig:**")
+    template_descriptions = ["-- Geen match --"] + [l["description"] for l in template_lines]
+
+    corrected_matches = []
+    for m in matches:
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.write(f"**{m['csv_product']}**")
+        with col2:
+            default_idx = template_descriptions.index(m["matched_to"]) if m["matched_to"] in template_descriptions else 0
+            corrected = st.selectbox(
+                f"Match voor {m['csv_product']}",
+                template_descriptions,
+                index=default_idx,
+                key=f"match_{m['product_nl']}_{m['gender_nl']}",
+                label_visibility="collapsed",
+            )
+            if corrected != "-- Geen match --":
+                matched_line = next(l for l in template_lines if l["description"] == corrected)
+                corrected_matches.append({
+                    **m,
+                    "matched_to": corrected,
+                    "unit_price": matched_line.get("unit_price", {}).get("amount", 0),
+                    "extended_description": matched_line.get("extended_description", ""),
+                    "template_line": matched_line,
+                })
             else:
-                st.warning("⚠️ Offerte kon niet aangemaakt worden.")
+                corrected_matches.append(m)
 
-    progress.progress(100)
-    st.balloons()
+    st.session_state.final_matches = corrected_matches
 
+if unmatched:
+    st.warning(f"Niet gematcht: {', '.join(unmatched)}")
 
+if "final_matches" not in st.session_state or not st.session_state.final_matches:
+    st.stop()
 
+# --- STAP 5: DEAL + OFFERTE AANMAKEN ---
+st.header("5. Deal + Offerte aanmaken")
+
+new_deal_title = st.text_input("Deal titel", value=f"{company_name} - Bestelling 2025")
+
+# Groepeer per bestelling type
+order_types = parsed["order_type"].unique().tolist()
+selected_order_types = st.multiselect("Welke bestellingen meenemen?", order_types, default=order_types)
+
+if st.button("Maak deal + offerte aan"):
+    final_matches = st.session_state.final_matches
+    filtered_csv = parsed[parsed["order_type"].isin(selected_order_types)]
+
+    with st.spinner("Deal aanmaken..."):
+        # Maak deal aan
+        deal_payload = {
+            "title": new_deal_title,
+            "lead": {"customer": {"type": "company", "id": selected_company_id}},
+            "source": {"type": "api"},
+        }
+        r = post_json("deals.create", deal_payload)
+        if not r.ok:
+            st.error(f"Fout bij aanmaken deal: {r.text}")
+            st.stop()
+
+        new_deal_id = r.json().get("data", {}).get("id")
+        st.success(f"Deal aangemaakt: **{new_deal_title}** (ID: {new_deal_id})")
+
+    with st.spinner("Offerte aanmaken..."):
+        # BTW tarief ophalen
+        vat_id = None
+        vr = post_json("taxRates.list", {})
+        if vr.ok:
+            for t in vr.json().get("data", []):
+                if abs(t.get("rate", 0) - 0.21) < 0.001:
+                    vat_id = t["id"]
+                    break
+
+        # Bouw line items per bestelling type
+        grouped_lines = []
+
+        for order_type in selected_order_types:
+            type_rows = filtered_csv[filtered_csv["order_type"] == order_type]
+            line_items = []
+
+            # Groepeer per product
+            for (product_nl, gender_nl), product_rows in type_rows.groupby(["product_nl", "gender_nl"]):
+                # Zoek de match
+                match = None
+                for m in final_matches:
+                    if m["product_nl"] == product_nl and m["gender_nl"] == gender_nl:
+                        match = m
+                        break
+
+                if not match or match["matched_to"] == "-- Geen match --":
+                    continue
+
+                # Maten samenvatting
+                sizes_detail = " / ".join(
+                    f"{r['quantity']} {r['size']}" for _, r in product_rows.iterrows()
+                )
+                total_qty = product_rows["quantity"].sum()
+
+                line_items.append({
+                    "quantity": total_qty,
+                    "description": match["matched_to"],
+                    "extended_description": f"{match.get('extended_description', '')}\n\nMaten: {sizes_detail}".strip(),
+                    "unit_price": {
+                        "amount": match["unit_price"],
+                        "tax": "excluding",
+                    },
+                    "tax_rate_id": vat_id,
+                })
+
+            if line_items:
+                grouped_lines.append({
+                    "section": {"title": f"Bestelling: {order_type}"},
+                    "line_items": line_items,
+                })
+
+        if not grouped_lines:
+            st.error("Geen line items om toe te voegen.")
+            st.stop()
+
+        q_payload = {
+            "deal_id": new_deal_id,
+            "title": new_deal_title,
+            "text": f"Offerte voor {company_name}",
+            "currency": {"code": "EUR", "exchange_rate": 1.0},
+            "grouped_lines": grouped_lines,
+        }
+
+        qr = post_json("quotations.create", q_payload)
+        if qr.ok:
+            qid = qr.json().get("data", {}).get("id")
+            st.success(f"Offerte aangemaakt (ID: {qid})")
+            st.balloons()
+        else:
+            st.error(f"Fout bij aanmaken offerte: {qr.text}")
