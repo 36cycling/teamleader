@@ -618,11 +618,11 @@ if st.button("Maak deal + offerte aan"):
                 description = f"{totaal_text} - {match['matched_to']}" if totaal_text else match["matched_to"]
 
                 line_items.append({
-                    "quantity": total_qty,
-                    "description": description,
-                    "extended_description": match.get("extended_description", ""),
+                    "quantity": int(total_qty),
+                    "description": str(description),
+                    "extended_description": str(match.get("extended_description", "") or ""),
                     "unit_price": {
-                        "amount": match["unit_price"],
+                        "amount": float(match["unit_price"]),
                         "tax": "excluding",
                     },
                     "tax_rate_id": vat_id,
