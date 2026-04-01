@@ -256,8 +256,12 @@ def detect_company_position(df) -> tuple:
 
 
 def parse_csv(uploaded_file) -> pd.DataFrame:
-    """Parse de bestelbon CSV naar een gestructureerd DataFrame."""
-    df = pd.read_csv(uploaded_file, sep=";", encoding="utf-8")
+    """Parse de bestelbon CSV of Excel naar een gestructureerd DataFrame."""
+    filename = uploaded_file.name.lower()
+    if filename.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(uploaded_file)
+    else:
+        df = pd.read_csv(uploaded_file, sep=";", encoding="utf-8")
 
     # Eerste kolom is "Product"
     size_cols = [c for c in df.columns if c not in ("Product", "Totaal")]
@@ -522,7 +526,7 @@ st.write("Upload een bestelbon CSV, selecteer een template deal, en maak automat
 
 # --- STAP 1: CSV UPLOAD ---
 st.header("1. Upload bestelbon")
-uploaded_file = st.file_uploader("Upload CSV bestand", type=["csv"])
+uploaded_file = st.file_uploader("Upload bestelbon (CSV of Excel)", type=["csv", "xlsx", "xls"])
 
 if uploaded_file:
     try:
