@@ -554,23 +554,22 @@ if uploaded_file:
         st.success(f"**Brontelling Excel:** {total_items_csv} artikelen, {unique_products_csv} unieke producten")
         st.write(f"**Bedrijf:** {company}")
 
-        # Verdeling per maat
-        col_check1, col_check2 = st.columns(2)
-        with col_check1:
-            st.write("**Verdeling per maat (Excel):**")
-            size_df = pd.DataFrame([
-                {"Maat": str(k), "Aantal": int(v)}
-                for k, v in sorted(size_breakdown_csv.items(), key=lambda x: -x[1])
-            ])
-            st.dataframe(size_df, use_container_width=True, hide_index=True)
-        with col_check2:
-            # Groepeer per product + geslacht
-            summary = parsed.groupby(["product_nl", "gender_nl", "order_type"]).agg(
-                total_qty=("quantity", "sum"),
-                sizes=("size", lambda x: ", ".join(f"{s}" for s in x)),
-            ).reset_index()
-            st.write("**Producten (Excel):**")
-            st.dataframe(summary, use_container_width=True, hide_index=True)
+        with st.expander("Details brontelling bekijken"):
+            col_check1, col_check2 = st.columns(2)
+            with col_check1:
+                st.write("**Verdeling per maat (Excel):**")
+                size_df = pd.DataFrame([
+                    {"Maat": str(k), "Aantal": int(v)}
+                    for k, v in sorted(size_breakdown_csv.items(), key=lambda x: -x[1])
+                ])
+                st.dataframe(size_df, use_container_width=True, hide_index=True)
+            with col_check2:
+                summary = parsed.groupby(["product_nl", "gender_nl", "order_type"]).agg(
+                    total_qty=("quantity", "sum"),
+                    sizes=("size", lambda x: ", ".join(f"{s}" for s in x)),
+                ).reset_index()
+                st.write("**Producten (Excel):**")
+                st.dataframe(summary, use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"Fout bij het parsen van de CSV: {e}")
         st.stop()
@@ -744,23 +743,32 @@ for _, row in unique_products.iterrows():
         "template_product": match,
     })
 
-# Alle producten tonen met dropdown om match aan te passen of toe te wijzen
-st.write("**Controleer en pas matches aan:**")
+# Alle producten tonen met dropdown, volgorde en match
+st.write("**Controleer matches en stel de volgorde in (nummer bepaalt positie op de offerte):**")
 template_descriptions = ["-- Geen match --"] + [p["offerte_description"] for p in template_products]
 
 corrected_matches = []
-for m in all_csv_products:
-    col1, col2 = st.columns([1, 2])
-    with col1:
+for idx, m in enumerate(all_csv_products):
+    col_order, col_name, col_match = st.columns([0.5, 1.5, 2])
+    with col_order:
+        order = st.number_input(
+            "Positie",
+            min_value=1,
+            max_value=len(all_csv_products),
+            value=idx + 1,
+            key=f"order_{m['product_nl']}_{m['gender_nl']}",
+            label_visibility="collapsed",
+        )
+    with col_name:
         if m["matched_to"]:
             st.write(f"**{m['csv_product']}**")
         else:
-            st.write(f":red[**{m['csv_product']}** (niet gematcht)]")
-    with col2:
+            st.write(f":red[**{m['csv_product']}**]")
+    with col_match:
         if m["matched_to"] and m["matched_to"] in template_descriptions:
             default_idx = template_descriptions.index(m["matched_to"])
         else:
-            default_idx = 0  # "-- Geen match --"
+            default_idx = 0
 
         corrected = st.selectbox(
             f"Match voor {m['csv_product']}",
@@ -777,9 +785,11 @@ for m in all_csv_products:
                 "unit_price": matched_prod["offerte_unit_price"],
                 "extended_description": matched_prod["offerte_extended_description"],
                 "template_product": matched_prod,
+                "_order": order,
             })
-        # Als "-- Geen match --" geselecteerd: product wordt overgeslagen
 
+# Sorteer op de gekozen volgorde
+corrected_matches.sort(key=lambda x: x.get("_order", 999))
 st.session_state.final_matches = corrected_matches
 
 if not corrected_matches:
@@ -866,18 +876,18 @@ if st.button("Maak deal + offerte aan"):
                     break
 
         # Bouw grouped_lines: per product een sectie met subtitel (maten)
+        # Volgorde komt uit de gesorteerde final_matches (stap 4)
         grouped_lines = []
 
-        # Groepeer per product (alle besteltypes samen)
-        for (product_nl, gender_nl), product_rows in parsed.groupby(["product_nl", "gender_nl"]):
-            # Zoek de match
-            match = None
-            for m in final_matches:
-                if m["product_nl"] == product_nl and m["gender_nl"] == gender_nl:
-                    match = m
-                    break
+        for match in final_matches:
+            if not match or match.get("matched_to") == "-- Geen match --":
+                continue
 
-            if not match or match["matched_to"] == "-- Geen match --":
+            product_nl = match["product_nl"]
+            gender_nl = match["gender_nl"]
+            product_rows = parsed[(parsed["product_nl"] == product_nl) & (parsed["gender_nl"] == gender_nl)]
+
+            if product_rows.empty:
                 continue
 
             # Maten samenvatting uit Totaal kolom
