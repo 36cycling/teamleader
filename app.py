@@ -23,25 +23,54 @@ TOKENS_FILE = "teamleader_tokens.json"
 # ============ PRODUCT MAPPING ============
 # Nederlands → Engels productname mapping (zonder geslacht)
 PRODUCT_MAP = {
+    # Exacte matches eerst (langere strings eerst voor greedy matching)
     "wielershirt pro": "Cycling Jersey Pro",
     "wielershirt cadans": "Cycling Jersey Cadans",
     "wielershirt": "Cycling Jersey",
-    "wielerbroek": "Bib Shorts",
     "lange wielerbroek": "Bib Tight",
     "3/4 wielerbroek": "3/4 Bib Tight",
+    "wielerbroek": "Bib Shorts",
     "all season jack": "All Season Jacket",
     "windjack zonder mouwen elaspin": "Wind Vest Elaspin",
     "windjack zonder mouwen": "Wind Vest",
+    "windjack elaspin": "Wind Jacket Elaspin",
     "windjack": "Wind Jacket",
-    "armstukken": "Arm Warmers",
+    "armstukken": "Sleeves",
     "beenstukken": "Leg Warmers",
     "overschoenen": "Shoe Covers",
     "wielerhandschoen": "Cycling Gloves",
+    "handschoen": "Gloves",
     "bandana": "Bandana",
     "sokken": "Socks",
     "bidon": "Bottle",
     "musette": "Musette",
     "pet": "Cap",
+    "t-shirt": "T-Shirt",
+    "polo": "Polo",
+    "vest": "Vest",
+    "hoodie": "Hoodie",
+    "bodywarmer": "Bodywarmer",
+    "regenjack": "Rain Jacket",
+}
+
+# Extra keyword mapping voor fuzzy matching als PRODUCT_MAP niet matcht
+KEYWORD_MAP = {
+    "elaspin": "elaspin",
+    "tight": "tight",
+    "bib": "bib",
+    "sleeve": "sleeve",
+    "arm": "arm",
+    "leg": "leg",
+    "warmers": "warmers",
+    "vest": "vest",
+    "jersey": "jersey",
+    "shorts": "shorts",
+    "jacket": "jacket",
+    "glove": "glove",
+    "sock": "sock",
+    "cap": "cap",
+    "bottle": "bottle",
+    "rain": "rain",
 }
 
 GENDER_MAP = {
@@ -305,7 +334,8 @@ def match_product_to_template(product_nl: str, gender_nl: str, template_products
     # Stap 1: Probeer de mapping tabel voor NL→EN vertaling
     product_lower = product_nl.lower().strip()
     english_base = None
-    for nl_key, en_value in PRODUCT_MAP.items():
+    for nl_key, en_value in sorted(PRODUCT_MAP.items(), key=lambda x: -len(x[0])):
+        # Langste match eerst (bijv. "lange wielerbroek" voor "wielerbroek")
         if nl_key in product_lower:
             english_base = en_value
             break
@@ -319,27 +349,55 @@ def match_product_to_template(product_nl: str, gender_nl: str, template_products
     else:
         search_term = product_nl  # fallback
 
-    # Stap 3: Fuzzy match tegen offerte beschrijvingen
+    # Stap 3: Match tegen offerte beschrijvingen
     best_match = None
     best_score = 0.0
 
     for prod in template_products:
-        desc = prod["offerte_description"]
+        desc = prod["offerte_description"].lower()
+        search_lower = search_term.lower()
 
-        # Exact match
-        if search_term.lower() in desc.lower():
-            return prod
+        # Exacte substring match
+        if search_lower in desc:
+            # Check ook geslacht als dat er is
+            if gender_en and gender_en.lower() not in desc:
+                # Productnaam matcht maar geslacht niet — lagere score
+                score = 0.7
+            else:
+                return prod  # Perfecte match
+        else:
+            score = 0.0
 
-        # Fuzzy score
-        score = SequenceMatcher(None, search_term.lower(), desc.lower()).ratio()
+        # Fuzzy score als basis
+        if score == 0.0:
+            score = SequenceMatcher(None, search_lower, desc).ratio()
 
         # Bonus als basisproductnaam erin zit
-        if english_base and english_base.lower() in desc.lower():
+        if english_base and english_base.lower() in desc:
             score += 0.3
 
         # Bonus als geslacht matcht
-        if gender_en and gender_en.lower() in desc.lower():
+        if gender_en and gender_en.lower() in desc:
             score += 0.2
+
+        # Keyword matching: bonus voor elk keyword uit de productnaam
+        # dat ook in de offerte beschrijving voorkomt
+        all_words = product_lower.split() + (search_term.lower().split() if english_base else [])
+        keyword_hits = 0
+        for word in all_words:
+            if len(word) >= 4 and word in desc:
+                keyword_hits += 1
+            # Check ook via KEYWORD_MAP
+            for kw_nl, kw_en in KEYWORD_MAP.items():
+                if kw_nl in word and kw_en in desc:
+                    keyword_hits += 1
+        score += keyword_hits * 0.15
+
+        # Penalty als "tight" in zoekterm maar "shorts" in beschrijving (of omgekeerd)
+        if "tight" in search_lower and "shorts" in desc and "tight" not in desc:
+            score -= 0.5
+        if "shorts" in search_lower and "tight" in desc and "shorts" not in desc:
+            score -= 0.5
 
         if score > best_score:
             best_score = score
@@ -566,7 +624,13 @@ if deal_search:
             label = f"Deal {ref}: {d['title']}" if ref else d["title"]
             deal_options[label] = d["id"]
 
-        selected_deal_labels = st.multiselect("Selecteer template deal(s)", list(deal_options.keys()))
+        # Eerste deal standaard geselecteerd (meest voor de hand liggend)
+        deal_keys = list(deal_options.keys())
+        selected_deal_labels = st.multiselect(
+            "Selecteer template deal(s)",
+            deal_keys,
+            default=[deal_keys[0]] if deal_keys else [],
+        )
 
         if not selected_deal_labels:
             st.info("Selecteer minimaal één deal.")
@@ -628,8 +692,7 @@ st.header("4. Product matching (CSV → Offerte)")
 st.write("Hieronder zie je hoe de CSV-producten gematcht worden met producten **uit de template offerte**.")
 
 template_products = st.session_state.template_products
-matches = []
-unmatched = []
+all_csv_products = []
 
 # Unieke producten uit CSV
 unique_products = parsed[["product_nl", "gender_nl"]].drop_duplicates()
@@ -644,64 +707,56 @@ for _, row in unique_products.iterrows():
     if gender_nl:
         display_name += f" ({gender_nl})"
 
-    if match:
-        matches.append({
-            "csv_product": display_name,
-            "product_nl": product_nl,
-            "gender_nl": gender_nl,
-            "matched_to": match["offerte_description"],
-            "unit_price": match["offerte_unit_price"],
-            "extended_description": match["offerte_extended_description"],
-            "template_product": match,
-        })
-    else:
-        unmatched.append(display_name)
+    all_csv_products.append({
+        "csv_product": display_name,
+        "product_nl": product_nl,
+        "gender_nl": gender_nl,
+        "matched_to": match["offerte_description"] if match else None,
+        "unit_price": match["offerte_unit_price"] if match else 0,
+        "extended_description": match["offerte_extended_description"] if match else "",
+        "template_product": match,
+    })
 
-if matches:
-    st.write("**Gevonden matches (bron: template offerte):**")
-    match_df = pd.DataFrame([{
-        "CSV Product": m["csv_product"],
-        "Offerte Product": m["matched_to"],
-        "Prijs (offerte)": f"{m['unit_price']:.2f} EUR",
-    } for m in matches])
-    st.dataframe(match_df, use_container_width=True)
+# Alle producten tonen met dropdown om match aan te passen of toe te wijzen
+st.write("**Controleer en pas matches aan:**")
+template_descriptions = ["-- Geen match --"] + [p["offerte_description"] for p in template_products]
 
-    # Handmatige correctie mogelijk maken
-    st.write("**Pas matches aan indien nodig:**")
-    template_descriptions = ["-- Geen match --"] + [p["offerte_description"] for p in template_products]
-
-    corrected_matches = []
-    for m in matches:
-        col1, col2 = st.columns([1, 2])
-        with col1:
+corrected_matches = []
+for m in all_csv_products:
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        if m["matched_to"]:
             st.write(f"**{m['csv_product']}**")
-        with col2:
-            default_idx = template_descriptions.index(m["matched_to"]) if m["matched_to"] in template_descriptions else 0
-            corrected = st.selectbox(
-                f"Match voor {m['csv_product']}",
-                template_descriptions,
-                index=default_idx,
-                key=f"match_{m['product_nl']}_{m['gender_nl']}",
-                label_visibility="collapsed",
-            )
-            if corrected != "-- Geen match --":
-                matched_prod = next(p for p in template_products if p["offerte_description"] == corrected)
-                corrected_matches.append({
-                    **m,
-                    "matched_to": corrected,
-                    "unit_price": matched_prod["offerte_unit_price"],
-                    "extended_description": matched_prod["offerte_extended_description"],
-                    "template_product": matched_prod,
-                })
-            else:
-                corrected_matches.append(m)
+        else:
+            st.write(f":red[**{m['csv_product']}** (niet gematcht)]")
+    with col2:
+        if m["matched_to"] and m["matched_to"] in template_descriptions:
+            default_idx = template_descriptions.index(m["matched_to"])
+        else:
+            default_idx = 0  # "-- Geen match --"
 
-    st.session_state.final_matches = corrected_matches
+        corrected = st.selectbox(
+            f"Match voor {m['csv_product']}",
+            template_descriptions,
+            index=default_idx,
+            key=f"match_{m['product_nl']}_{m['gender_nl']}",
+            label_visibility="collapsed",
+        )
+        if corrected != "-- Geen match --":
+            matched_prod = next(p for p in template_products if p["offerte_description"] == corrected)
+            corrected_matches.append({
+                **m,
+                "matched_to": corrected,
+                "unit_price": matched_prod["offerte_unit_price"],
+                "extended_description": matched_prod["offerte_extended_description"],
+                "template_product": matched_prod,
+            })
+        # Als "-- Geen match --" geselecteerd: product wordt overgeslagen
 
-if unmatched:
-    st.warning(f"Niet gematcht: {', '.join(unmatched)}")
+st.session_state.final_matches = corrected_matches
 
-if "final_matches" not in st.session_state or not st.session_state.final_matches:
+if not corrected_matches:
+    st.warning("Geen producten gematcht. Selecteer matches in de dropdowns hierboven.")
     st.stop()
 
 # --- STAP 5: DEAL + OFFERTE AANMAKEN ---
