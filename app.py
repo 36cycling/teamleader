@@ -536,19 +536,41 @@ if uploaded_file:
         if len(parsed) == 0:
             st.error("Geen producten gevonden in de CSV.")
             st.stop()
-        st.success(f"{len(parsed)} productregels gevonden")
 
-        # Toon samenvatting
+        # === VERIFICATIE STAP 1: Brontelling uit Excel ===
         company = parsed["company"].iloc[0] if len(parsed) > 0 else "Onbekend"
         st.session_state.csv_company = company
+
+        total_items_csv = int(parsed["quantity"].sum())
+        unique_products_csv = len(parsed[["product_nl", "gender_nl"]].drop_duplicates())
+        size_breakdown_csv = parsed.groupby("size")["quantity"].sum().to_dict()
+
+        st.session_state.csv_check = {
+            "total_items": total_items_csv,
+            "unique_products": unique_products_csv,
+            "size_breakdown": size_breakdown_csv,
+        }
+
+        st.success(f"**Brontelling Excel:** {total_items_csv} artikelen, {unique_products_csv} unieke producten")
         st.write(f"**Bedrijf:** {company}")
 
-        # Groepeer per product + geslacht
-        summary = parsed.groupby(["product_nl", "gender_nl", "order_type"]).agg(
-            total_qty=("quantity", "sum"),
-            sizes=("size", lambda x: ", ".join(f"{s}" for s in x)),
-        ).reset_index()
-        st.dataframe(summary, use_container_width=True)
+        # Verdeling per maat
+        col_check1, col_check2 = st.columns(2)
+        with col_check1:
+            st.write("**Verdeling per maat (Excel):**")
+            size_df = pd.DataFrame([
+                {"Maat": str(k), "Aantal": int(v)}
+                for k, v in sorted(size_breakdown_csv.items(), key=lambda x: -x[1])
+            ])
+            st.dataframe(size_df, use_container_width=True, hide_index=True)
+        with col_check2:
+            # Groepeer per product + geslacht
+            summary = parsed.groupby(["product_nl", "gender_nl", "order_type"]).agg(
+                total_qty=("quantity", "sum"),
+                sizes=("size", lambda x: ", ".join(f"{s}" for s in x)),
+            ).reset_index()
+            st.write("**Producten (Excel):**")
+            st.dataframe(summary, use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"Fout bij het parsen van de CSV: {e}")
         st.stop()
@@ -764,6 +786,53 @@ if not corrected_matches:
     st.warning("Geen producten gematcht. Selecteer matches in de dropdowns hierboven.")
     st.stop()
 
+# === VERIFICATIE STAP 2: Telling na matching ===
+csv_check = st.session_state.get("csv_check", {})
+matched_product_keys = set((m["product_nl"], m["gender_nl"]) for m in corrected_matches)
+matched_rows = parsed[parsed.apply(lambda r: (r["product_nl"], r["gender_nl"]) in matched_product_keys, axis=1)]
+total_items_matched = int(matched_rows["quantity"].sum())
+unique_products_matched = len(matched_product_keys)
+size_breakdown_matched = matched_rows.groupby("size")["quantity"].sum().to_dict()
+
+# Bereken verwacht totaalbedrag
+expected_total = 0.0
+for m in corrected_matches:
+    prod_rows = parsed[(parsed["product_nl"] == m["product_nl"]) & (parsed["gender_nl"] == m["gender_nl"])]
+    qty = int(prod_rows["quantity"].sum())
+    expected_total += qty * float(m["unit_price"])
+
+items_ok = total_items_matched == csv_check.get("total_items", 0)
+products_ok = unique_products_matched == csv_check.get("unique_products", 0)
+
+st.header("Verificatie na matching")
+col_v1, col_v2, col_v3 = st.columns(3)
+with col_v1:
+    icon = "+" if items_ok else "!"
+    st.metric("Artikelen", f"{total_items_matched} / {csv_check.get('total_items', '?')}",
+              delta="OK" if items_ok else f"{total_items_matched - csv_check.get('total_items', 0)} verschil",
+              delta_color="normal" if items_ok else "inverse")
+with col_v2:
+    st.metric("Unieke producten", f"{unique_products_matched} / {csv_check.get('unique_products', '?')}",
+              delta="OK" if products_ok else f"{unique_products_matched - csv_check.get('unique_products', 0)} verschil",
+              delta_color="normal" if products_ok else "inverse")
+with col_v3:
+    st.metric("Verwacht totaalbedrag", f"{expected_total:.2f} EUR")
+
+# Toon maat-verdeling vergelijking
+if not items_ok or not products_ok:
+    st.warning("De telling komt niet overeen. Controleer de matches hierboven — producten zonder match worden overgeslagen.")
+    with st.expander("Maat-verdeling vergelijking"):
+        all_sizes = sorted(set(list(csv_check.get("size_breakdown", {}).keys()) + list(size_breakdown_matched.keys())))
+        comparison = pd.DataFrame([{
+            "Maat": s,
+            "Excel": int(csv_check.get("size_breakdown", {}).get(s, 0)),
+            "Na matching": int(size_breakdown_matched.get(s, 0)),
+            "Verschil": int(size_breakdown_matched.get(s, 0)) - int(csv_check.get("size_breakdown", {}).get(s, 0)),
+        } for s in all_sizes])
+        st.dataframe(comparison, use_container_width=True, hide_index=True)
+else:
+    st.success("Alle artikelen en producten zijn gematcht!")
+
 # --- STAP 5: DEAL + OFFERTE AANMAKEN ---
 st.header("5. Deal + Offerte aanmaken")
 
@@ -860,6 +929,53 @@ if st.button("Maak deal + offerte aan"):
         if qr.ok:
             qid = qr.json().get("data", {}).get("id")
             st.success(f"Offerte aangemaakt (ID: {qid})")
-            st.balloons()
+
+            # === VERIFICATIE STAP 3: Offerte ophalen en vergelijken ===
+            st.header("Eindverificatie")
+            with st.spinner("Aangemaakte offerte ophalen ter controle..."):
+                verify_r = post_json("quotations.info", {"id": qid})
+
+            if verify_r.ok:
+                verify_data = verify_r.json().get("data", {})
+                offerte_total = float(verify_data.get("total", {}).get("tax_exclusive", 0))
+                offerte_lines = []
+                for group in verify_data.get("grouped_lines", []):
+                    for item in group.get("line_items", []):
+                        offerte_lines.append({
+                            "description": item.get("description", ""),
+                            "quantity": item.get("quantity", 0),
+                            "unit_price": float(item.get("unit_price", {}).get("amount", 0)),
+                            "line_total": float(item.get("total", {}).get("tax_exclusive", 0)),
+                        })
+
+                offerte_items_total = sum(l["quantity"] for l in offerte_lines)
+                offerte_products_total = len(offerte_lines)
+
+                csv_check = st.session_state.get("csv_check", {})
+                items_match = offerte_items_total == csv_check.get("total_items", 0)
+                amount_match = abs(offerte_total - expected_total) < 0.01
+
+                col_e1, col_e2, col_e3 = st.columns(3)
+                with col_e1:
+                    st.metric("Artikelen offerte", offerte_items_total,
+                              delta="OK" if items_match else f"Excel: {csv_check.get('total_items', '?')}",
+                              delta_color="normal" if items_match else "inverse")
+                with col_e2:
+                    st.metric("Producten offerte", offerte_products_total)
+                with col_e3:
+                    st.metric("Totaalbedrag offerte", f"{offerte_total:.2f} EUR",
+                              delta="OK" if amount_match else f"Verwacht: {expected_total:.2f}",
+                              delta_color="normal" if amount_match else "inverse")
+
+                if items_match and amount_match:
+                    st.success("Alles klopt! De offerte komt exact overeen met de Excel.")
+                    st.balloons()
+                else:
+                    st.warning("Er zijn afwijkingen gevonden. Controleer de offerte in Teamleader.")
+                    with st.expander("Offerte line items"):
+                        st.dataframe(pd.DataFrame(offerte_lines), use_container_width=True, hide_index=True)
+            else:
+                st.warning("Kon de aangemaakte offerte niet ophalen ter verificatie.")
+                st.balloons()
         else:
             st.error(f"Fout bij aanmaken offerte: {qr.text}")
