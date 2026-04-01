@@ -566,40 +566,42 @@ if deal_search:
             label = f"Deal {ref}: {d['title']}" if ref else d["title"]
             deal_options[label] = d["id"]
 
-        selected_deal_label = st.selectbox("Selecteer template deal", list(deal_options.keys()))
-        template_deal_id = deal_options[selected_deal_label]
+        selected_deal_labels = st.multiselect("Selecteer template deal(s)", list(deal_options.keys()))
 
-        # Haal offertes op voor deze deal
-        with st.spinner("Offertes ophalen voor deze deal..."):
-            deal_quotations = get_deal_quotations(template_deal_id)
-
-        if not deal_quotations:
-            st.warning("Geen offertes gevonden voor deze deal.")
+        if not selected_deal_labels:
+            st.info("Selecteer minimaal één deal.")
             st.stop()
 
-        # Laat gebruiker de specifieke offerte kiezen
-        q_options = {}
-        for q in deal_quotations:
-            q_name = q.get("name", "Naamloos")
-            q_status = q.get("status", "?")
-            q_total = q.get("total", {}).get("tax_exclusive", "?")
-            label = f"{q_name} (status: {q_status}, totaal: {q_total} EUR)"
-            q_options[label] = q["id"]
+        # Haal offertes op voor alle geselecteerde deals en verzamel producten
+        all_template_products = []
+        total_quotations = 0
 
-        st.write(f"**{len(deal_quotations)} offerte(s) gevonden voor deze deal:**")
-        selected_q_label = st.selectbox("Selecteer de template offerte", list(q_options.keys()))
-        selected_q_id = q_options[selected_q_label]
+        with st.spinner("Offertes ophalen uit geselecteerde deals..."):
+            for deal_label in selected_deal_labels:
+                deal_id = deal_options[deal_label]
+                deal_quotations = get_deal_quotations(deal_id)
 
-        # Haal line items op uit de GESELECTEERDE offerte
-        with st.spinner("Producten ophalen uit de geselecteerde offerte..."):
-            template_products = get_quotation_products(selected_q_id)
+                for q in deal_quotations:
+                    q_id = q.get("id")
+                    if q_id:
+                        products = get_quotation_products(q_id)
+                        all_template_products.extend(products)
+                        total_quotations += 1
+
+        # Dedupliceer op basis van offerte_description (behoud eerste voorkomen)
+        seen_descriptions = set()
+        template_products = []
+        for p in all_template_products:
+            desc = p["offerte_description"]
+            if desc not in seen_descriptions:
+                seen_descriptions.add(desc)
+                template_products.append(p)
 
         if template_products:
-            st.success(f"{len(template_products)} producten opgehaald uit offerte: **{selected_q_label}**")
+            st.success(f"{len(template_products)} unieke producten opgehaald uit {total_quotations} offerte(s)")
 
-            # STAP 3b: Toon de "template database" - expliciet uit de offerte
-            st.subheader("Template productdatabase (uit geselecteerde offerte)")
-            st.write("Deze producten, beschrijvingen en prijzen komen **uit de hierboven geselecteerde offerte** en worden gebruikt voor matching:")
+            st.subheader("Producten uit geselecteerde offertes")
+            st.write("Deze producten, beschrijvingen en prijzen worden gebruikt voor matching:")
             template_db_df = pd.DataFrame([{
                 "Product (offerte)": p["offerte_description"],
                 "Beschrijving": p["offerte_extended_description"][:80] + "..." if len(p["offerte_extended_description"]) > 80 else p["offerte_extended_description"],
@@ -609,9 +611,8 @@ if deal_search:
             st.dataframe(template_db_df, use_container_width=True)
 
             st.session_state.template_products = template_products
-            st.session_state.template_deal_id = template_deal_id
         else:
-            st.warning("Geen producten gevonden in deze offerte.")
+            st.warning("Geen producten gevonden in de offertes van de geselecteerde deals.")
             st.stop()
     else:
         st.warning("Geen deals gevonden.")
