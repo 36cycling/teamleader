@@ -937,15 +937,32 @@ if st.button("Maak deal + offerte aan"):
 
             if verify_r.ok:
                 verify_data = verify_r.json().get("data", {})
-                offerte_total = float(verify_data.get("total", {}).get("tax_exclusive", 0))
+                raw_total = verify_data.get("total", {})
+                if isinstance(raw_total, dict):
+                    tax_excl = raw_total.get("tax_exclusive", 0)
+                    if isinstance(tax_excl, dict):
+                        offerte_total = float(tax_excl.get("amount", 0))
+                    else:
+                        offerte_total = float(tax_excl or 0)
+                else:
+                    offerte_total = float(raw_total or 0)
+
                 offerte_lines = []
                 for group in verify_data.get("grouped_lines", []):
                     for item in group.get("line_items", []):
+                        raw_up = item.get("unit_price", {})
+                        up_amount = float(raw_up.get("amount", 0)) if isinstance(raw_up, dict) else float(raw_up or 0)
+                        raw_lt = item.get("total", {})
+                        if isinstance(raw_lt, dict):
+                            lt_val = raw_lt.get("tax_exclusive", 0)
+                            lt_amount = float(lt_val.get("amount", 0)) if isinstance(lt_val, dict) else float(lt_val or 0)
+                        else:
+                            lt_amount = float(raw_lt or 0)
                         offerte_lines.append({
                             "description": item.get("description", ""),
                             "quantity": item.get("quantity", 0),
-                            "unit_price": float(item.get("unit_price", {}).get("amount", 0)),
-                            "line_total": float(item.get("total", {}).get("tax_exclusive", 0)),
+                            "unit_price": up_amount,
+                            "line_total": lt_amount,
                         })
 
                 offerte_items_total = sum(l["quantity"] for l in offerte_lines)
