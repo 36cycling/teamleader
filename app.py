@@ -282,21 +282,25 @@ def parse_csv(uploaded_file) -> pd.DataFrame:
             continue
 
         company_name = parts[company_idx]
-        product_name_raw = parts[product_idx]
 
-        # Strip *NEW en andere tags
-        product_name_clean = re.sub(r"\s*\*\w+", "", product_name_raw).strip()
-
-        # Zoek geslacht en besteltype in alle overige delen
+        # Verzamel alle delen die NIET bedrijf, geslacht of besteltype zijn → productnaam
         gender = ""
         order_type = ""
+        product_parts = []
         for i, part in enumerate(parts):
-            if i == company_idx or i == product_idx:
+            if i == company_idx:
                 continue
             if part.startswith("Geslacht:"):
                 gender = part.replace("Geslacht:", "").strip()
             elif part.startswith("Bestelling:"):
                 order_type = part.replace("Bestelling:", "").strip()
+            else:
+                product_parts.append(part)
+
+        product_name_raw = " - ".join(product_parts) if product_parts else parts[product_idx]
+
+        # Strip *NEW en andere tags
+        product_name_clean = re.sub(r"\s*\*\w+", "", product_name_raw).strip()
 
         # Maten samenvatting uit Totaal kolom (bijv. "1 L / 1 2XL")
         totaal_text = str(row.get("Totaal", "")).strip()
