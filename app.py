@@ -22,62 +22,69 @@ TOKENS_FILE = "teamleader_tokens.json"
 
 # ============ PRODUCT MAPPING ============
 # Nederlands → Engels productname mapping (zonder geslacht)
-PRODUCT_MAP = {
-    # Exacte matches eerst (langere strings eerst voor greedy matching)
-    "wielershirt pro": "Cycling Jersey Pro",
-    "wielershirt cadans": "Cycling Jersey Cadans",
-    "wielershirt": "Cycling Jersey",
-    "lange wielerbroek": "Bib Tight",
-    "3/4 wielerbroek": "3/4 Bib Tight",
-    "wielerbroek": "Bib Shorts",
-    "all season jack": "All Season Jacket",
-    "windjack zonder mouwen elaspin": "Wind Vest Elaspin",
-    "windjack zonder mouwen": "Wind Vest",
-    "jack elaspin": "Wind Jacket Elaspin",
-    "windjack elaspin": "Wind Jacket Elaspin",
-    "windjack": "Wind Jacket",
-    "armstukken": "Sleeves",
-    "beenstukken": "Legs",
-    "overschoenen": "Shoe Covers",
-    "wielerhandschoen": "Cycling Gloves",
-    "handschoen": "Gloves",
-    "bandana": "Bandana",
-    "sokken": "Socks",
-    "bidon": "Bottle",
-    "musette": "Musette",
-    "pet": "Cap",
-    "t-shirt": "T-Shirt",
-    "polo": "Polo",
-    "vest": "Vest",
-    "hoodie": "Hoodie",
-    "bodywarmer": "Bodywarmer",
-    "regenjack": "Rain Jacket",
-}
+# ============ VERTAALWOORDENBOEK ============
+# Alle woorden/frases die in CSV-productnamen kunnen voorkomen
+# vertaald naar hoe ze in offerte-beschrijvingen staan.
+# Langere frases eerst voor greedy matching.
 
-# Extra keyword mapping voor fuzzy matching als PRODUCT_MAP niet matcht
-KEYWORD_MAP = {
-    "elaspin": "elaspin",
-    "tight": "tight",
-    "bib": "bib",
-    "sleeve": "sleeve",
-    "arm": "arm",
-    "leg": "leg",
-    "warmers": "warmers",
-    "vest": "vest",
-    "jersey": "jersey",
-    "shorts": "shorts",
-    "jacket": "jacket",
-    "glove": "glove",
-    "sock": "sock",
-    "cap": "cap",
-    "bottle": "bottle",
-    "rain": "rain",
-}
+# Product vertalingen (NL frase → EN zoektermen, meerdere synoniemen mogelijk)
+PRODUCT_TRANSLATIONS = [
+    # Langere frases eerst
+    ("wielershirt pro", ["cycling jersey pro"]),
+    ("wielershirt cadans", ["cycling jersey cadans"]),
+    ("wielershirt", ["cycling jersey", "jersey"]),
+    ("lange wielerbroek", ["bib tight", "tight"]),
+    ("3/4 wielerbroek", ["3/4 bib tight", "3/4 tight"]),
+    ("wielerbroek", ["bib shorts", "shorts"]),
+    ("sportshirt", ["running jersey", "sport jersey", "running"]),
+    ("all season jack", ["all season jacket"]),
+    ("windjack zonder mouwen", ["wind vest"]),
+    ("windjack", ["wind jacket"]),
+    ("regenjack", ["rain jacket"]),
+    ("jack", ["jacket"]),
+    ("armstukken", ["sleeves", "arm sleeves"]),
+    ("beenstukken", ["legs", "leg warmers"]),
+    ("overschoenen", ["shoe covers", "overshoes"]),
+    ("wielerhandschoen", ["cycling gloves"]),
+    ("handschoen", ["gloves"]),
+    ("bandana", ["bandana"]),
+    ("sokken", ["socks"]),
+    ("bidon", ["bottle"]),
+    ("musette", ["musette"]),
+    ("pet", ["cap"]),
+    ("t-shirt", ["t-shirt"]),
+    ("polo", ["polo jersey", "polo"]),
+    ("vest", ["vest", "gilet"]),
+    ("hoodie", ["hoodie"]),
+    ("bodywarmer", ["bodywarmer", "body warmer"]),
+]
 
-GENDER_MAP = {
-    "man": "Men",
-    "vrouw": "Women",
-    "kind": "Kids",
+# Woord-voor-woord vertalingen (voor losse keywords)
+WORD_TRANSLATIONS = {
+    # Geslacht
+    "vrouw": ["ladies", "women", "woman"],
+    "dames": ["ladies", "women"],
+    "man": ["men", "man"],
+    "heren": ["men"],
+    "kind": ["kids", "junior"],
+    # Product-eigenschappen
+    "zonder": ["without"],
+    "met": ["with"],
+    "lang": ["long"],
+    "kort": ["short"],
+    "padding": ["zeem", "padding", "chamois"],
+    "zeem": ["zeem", "padding", "chamois"],
+    "achterzakken": ["pockets", "back pockets"],
+    "mouwen": ["sleeves"],
+    # Materialen/types die hetzelfde zijn in NL en EN
+    "elaspin": ["elaspin"],
+    "pro": ["pro"],
+    "cadans": ["cadans"],
+    "light": ["light"],
+    "thermo": ["thermo"],
+    "race": ["race"],
+    "club": ["club"],
+    "aero": ["aero"],
 }
 
 
@@ -333,86 +340,123 @@ def parse_csv(uploaded_file) -> pd.DataFrame:
 # =============================================
 #   PRODUCT MATCHING
 # =============================================
+def translate_to_search_terms(product_nl: str, gender_nl: str) -> Dict:
+    """Vertaal een Nederlands product naar Engelse zoektermen.
+
+    Returns dict met:
+    - product_terms: lijst van Engelse productnaam-varianten
+    - gender_terms: lijst van Engelse geslacht-varianten
+    - extra_terms: lijst van vertaalde losse woorden
+    - original_words: originele woorden die ook letterlijk kunnen matchen
+    """
+    product_lower = product_nl.lower().strip()
+
+    # Stap 1: Productvertaling via frases (langste match eerst)
+    product_terms = []
+    matched_phrase = None
+    for nl_phrase, en_terms in PRODUCT_TRANSLATIONS:
+        if nl_phrase in product_lower:
+            product_terms = en_terms
+            matched_phrase = nl_phrase
+            break
+
+    # Stap 2: Geslacht vertalen
+    gender_terms = []
+    if gender_nl:
+        gender_lower = gender_nl.lower()
+        gender_terms = WORD_TRANSLATIONS.get(gender_lower, [gender_lower])
+
+    # Stap 3: Alle losse woorden vertalen (voor extra keywords)
+    extra_terms = []
+    original_words = []
+    for word in product_lower.split():
+        word_clean = re.sub(r"\*\w+", "", word).strip()
+        if not word_clean or len(word_clean) < 2:
+            continue
+        # Sla de frase-match over (al verwerkt)
+        if matched_phrase and word_clean in matched_phrase:
+            continue
+        original_words.append(word_clean)
+        if word_clean in WORD_TRANSLATIONS:
+            extra_terms.extend(WORD_TRANSLATIONS[word_clean])
+        else:
+            extra_terms.append(word_clean)  # Woord zelf ook meenemen (bijv. "elaspin", "pro")
+
+    return {
+        "product_terms": product_terms,
+        "gender_terms": gender_terms,
+        "extra_terms": extra_terms,
+        "original_words": original_words,
+    }
+
+
 def match_product_to_template(product_nl: str, gender_nl: str, template_products: List[Dict]) -> Optional[Dict]:
     """Match een Nederlands product naar een template offerte product.
 
-    Matcht ALLEEN tegen offerte_description uit de template offerte,
-    NIET tegen de Teamleader productcatalogus.
+    Woordenboek-aanpak:
+    1. Vertaal alle woorden uit de CSV-productnaam naar Engels
+    2. Scoor elke offerte-beschrijving op basis van hoeveel vertaalde woorden erin voorkomen
+    3. Hoogste score wint
     """
+    terms = translate_to_search_terms(product_nl, gender_nl)
 
-    # Stap 1: Probeer de mapping tabel voor NL→EN vertaling
-    product_lower = product_nl.lower().strip()
-    english_base = None
-    for nl_key, en_value in sorted(PRODUCT_MAP.items(), key=lambda x: -len(x[0])):
-        # Langste match eerst (bijv. "lange wielerbroek" voor "wielerbroek")
-        if nl_key in product_lower:
-            english_base = en_value
-            break
-
-    # Stap 2: Voeg geslacht toe
-    gender_en = GENDER_MAP.get(gender_nl.lower(), "") if gender_nl else ""
-    if english_base and gender_en:
-        search_term = f"{english_base} - {gender_en}"
-    elif english_base:
-        search_term = english_base
-    else:
-        search_term = product_nl  # fallback
-
-    # Stap 3: Match tegen offerte beschrijvingen
     best_match = None
     best_score = 0.0
 
     for prod in template_products:
         desc = prod["offerte_description"].lower()
-        search_lower = search_term.lower()
+        score = 0.0
 
-        # Exacte substring match
-        if search_lower in desc:
-            # Check ook geslacht als dat er is
-            if gender_en and gender_en.lower() not in desc:
-                # Productnaam matcht maar geslacht niet — lagere score
-                score = 0.7
-            else:
-                return prod  # Perfecte match
-        else:
-            score = 0.0
+        # Productterm matching (zwaarst: 3 punten per match)
+        product_matched = False
+        for term in terms["product_terms"]:
+            if term.lower() in desc:
+                score += 3.0
+                product_matched = True
+                break  # Één productmatch is genoeg
 
-        # Fuzzy score als basis
-        if score == 0.0:
-            score = SequenceMatcher(None, search_lower, desc).ratio()
+        # Geslacht matching (2 punten)
+        gender_matched = False
+        for term in terms["gender_terms"]:
+            if term.lower() in desc:
+                score += 2.0
+                gender_matched = True
+                break
 
-        # Bonus als basisproductnaam erin zit
-        if english_base and english_base.lower() in desc:
-            score += 0.3
+        # Extra woorden matching (1 punt per woord)
+        for term in terms["extra_terms"]:
+            if term.lower() in desc:
+                score += 1.0
 
-        # Bonus als geslacht matcht
-        if gender_en and gender_en.lower() in desc:
-            score += 0.2
+        # Originele woorden die letterlijk voorkomen (0.5 punt per woord)
+        for word in terms["original_words"]:
+            if len(word) >= 3 and word in desc:
+                score += 0.5
 
-        # Keyword matching: bonus voor elk keyword uit de productnaam
-        # dat ook in de offerte beschrijving voorkomt
-        all_words = product_lower.split() + (search_term.lower().split() if english_base else [])
-        keyword_hits = 0
-        for word in all_words:
-            if len(word) >= 4 and word in desc:
-                keyword_hits += 1
-            # Check ook via KEYWORD_MAP
-            for kw_nl, kw_en in KEYWORD_MAP.items():
-                if kw_nl in word and kw_en in desc:
-                    keyword_hits += 1
-        score += keyword_hits * 0.15
+        # Penalties
+        # Tight vs shorts verwarring
+        is_tight = any("tight" in t for t in terms["product_terms"])
+        is_shorts = any("shorts" in t or "short" == t for t in terms["product_terms"])
+        if is_tight and "shorts" in desc and "tight" not in desc:
+            score -= 2.0
+        if is_shorts and "tight" in desc and "shorts" not in desc:
+            score -= 2.0
 
-        # Penalty als "tight" in zoekterm maar "shorts" in beschrijving (of omgekeerd)
-        if "tight" in search_lower and "shorts" in desc and "tight" not in desc:
-            score -= 0.5
-        if "shorts" in search_lower and "tight" in desc and "shorts" not in desc:
-            score -= 0.5
+        # Geslacht mismatch penalty
+        if terms["gender_terms"] and not gender_matched:
+            # Check of het ANDERE geslacht in de beschrijving staat
+            other_genders = ["men", "women", "ladies", "man", "kids", "junior"]
+            for g in other_genders:
+                if g in desc and g not in [t.lower() for t in terms["gender_terms"]]:
+                    score -= 1.0
+                    break
 
         if score > best_score:
             best_score = score
             best_match = prod
 
-    if best_score >= 0.4:
+    # Minimaal de productterm moet matchen (score >= 3)
+    if best_score >= 2.0:
         return best_match
 
     return None
