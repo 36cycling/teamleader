@@ -29,19 +29,27 @@ TOKENS_FILE = "teamleader_tokens.json"
 
 # Product vertalingen (NL frase → EN zoektermen, meerdere synoniemen mogelijk)
 PRODUCT_TRANSLATIONS = [
-    # Langere frases eerst
+    # Langere frases eerst (volgorde is belangrijk!)
     ("wielershirt pro", ["cycling jersey pro"]),
     ("wielershirt cadans", ["cycling jersey cadans"]),
     ("wielershirt", ["cycling jersey", "jersey"]),
     ("lange wielerbroek", ["bib tight", "tight"]),
+    ("lange broek", ["bib tight", "tight"]),
     ("3/4 wielerbroek", ["3/4 bib tight", "3/4 tight"]),
+    ("3/4 broek", ["3/4 bib tight", "3/4 tight"]),
+    ("korte broek", ["bib shorts", "shorts"]),
     ("wielerbroek", ["bib shorts", "shorts"]),
+    ("broek", ["bib shorts", "shorts"]),
     ("sportshirt", ["running jersey", "sport jersey", "running"]),
     ("all season jack", ["all season jacket"]),
+    ("all season jas", ["all season jacket"]),
     ("windjack zonder mouwen", ["wind vest"]),
+    ("windvest", ["wind vest"]),
     ("windjack", ["wind jacket"]),
     ("regenjack", ["rain jacket"]),
+    ("regenjas", ["rain jacket"]),
     ("jack", ["jacket"]),
+    ("jas", ["jacket"]),
     ("armstukken", ["sleeves", "arm sleeves"]),
     ("beenstukken", ["legs", "leg warmers"]),
     ("overschoenen", ["shoe covers", "overshoes"]),
@@ -52,11 +60,13 @@ PRODUCT_TRANSLATIONS = [
     ("bidon", ["bottle"]),
     ("musette", ["musette"]),
     ("pet", ["cap"]),
-    ("t-shirt", ["t-shirt"]),
+    ("t-shirt", ["t-shirt", "tshirt"]),
     ("polo", ["polo jersey", "polo"]),
     ("vest", ["vest", "gilet"]),
     ("hoodie", ["hoodie"]),
     ("bodywarmer", ["bodywarmer", "body warmer"]),
+    ("muts", ["beanie", "hat"]),
+    ("sjaal", ["scarf", "neck warmer"]),
 ]
 
 # Woord-voor-woord vertalingen (voor losse keywords)
@@ -415,11 +425,11 @@ def match_product_to_template(product_nl: str, gender_nl: str, template_products
                 product_matched = True
                 break  # Één productmatch is genoeg
 
-        # Geslacht matching (2 punten)
+        # Geslacht matching (0.5 punt - alleen tiebreaker)
         gender_matched = False
         for term in terms["gender_terms"]:
             if term.lower() in desc:
-                score += 2.0
+                score += 0.5
                 gender_matched = True
                 break
 
@@ -448,15 +458,15 @@ def match_product_to_template(product_nl: str, gender_nl: str, template_products
             other_genders = ["men", "women", "ladies", "man", "kids", "junior"]
             for g in other_genders:
                 if g in desc and g not in [t.lower() for t in terms["gender_terms"]]:
-                    score -= 1.0
+                    score -= 1.5
                     break
 
-        if score > best_score:
+        if score > best_score and product_matched:
             best_score = score
             best_match = prod
 
-    # Minimaal de productterm moet matchen (score >= 3)
-    if best_score >= 2.0:
+    # Productterm moet gematcht zijn (geen match zonder productvertaling)
+    if best_match and best_score >= 3.0:
         return best_match
 
     return None
