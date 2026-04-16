@@ -816,34 +816,46 @@ st.header("4. Product matching (CSV → Offerte)")
 st.write("Hieronder zie je hoe de CSV-producten gematcht worden met producten **uit de template offerte**.")
 
 template_products = st.session_state.template_products
-all_csv_products = []
 
-# Unieke producten uit CSV
-unique_products = parsed[["product_nl", "gender_nl"]].drop_duplicates()
+# Cache-sleutel: combinatie van CSV-inhoud en template-producten
+# Zo hoeven matches alleen opnieuw berekend te worden bij nieuwe data, niet bij elke klik
+_csv_cache_key = str(parsed[["product_nl", "gender_nl"]].drop_duplicates().values.tolist())
+_tpl_cache_key = str([p["offerte_description"] for p in template_products])
+_match_cache_key = (_csv_cache_key, _tpl_cache_key)
 
-for _, row in unique_products.iterrows():
-    product_nl = row["product_nl"]
-    gender_nl = row["gender_nl"]
+if st.session_state.get("match_cache_key") != _match_cache_key:
+    # Alleen herberekenen als CSV of template is gewijzigd
+    all_csv_products = []
+    unique_products = parsed[["product_nl", "gender_nl"]].drop_duplicates()
 
-    match, match_terms, match_scores = match_product_to_template(
-        product_nl, gender_nl, template_products, debug=True
-    )
+    for _, row in unique_products.iterrows():
+        product_nl = row["product_nl"]
+        gender_nl = row["gender_nl"]
 
-    display_name = f"{product_nl}"
-    if gender_nl:
-        display_name += f" ({gender_nl})"
+        match, match_terms, match_scores = match_product_to_template(
+            product_nl, gender_nl, template_products, debug=True
+        )
 
-    all_csv_products.append({
-        "csv_product": display_name,
-        "product_nl": product_nl,
-        "gender_nl": gender_nl,
-        "matched_to": match["offerte_description"] if match else None,
-        "unit_price": match["offerte_unit_price"] if match else 0,
-        "extended_description": match["offerte_extended_description"] if match else "",
-        "template_product": match,
-        "_debug_terms": match_terms,
-        "_debug_scores": match_scores,
-    })
+        display_name = f"{product_nl}"
+        if gender_nl:
+            display_name += f" ({gender_nl})"
+
+        all_csv_products.append({
+            "csv_product": display_name,
+            "product_nl": product_nl,
+            "gender_nl": gender_nl,
+            "matched_to": match["offerte_description"] if match else None,
+            "unit_price": match["offerte_unit_price"] if match else 0,
+            "extended_description": match["offerte_extended_description"] if match else "",
+            "template_product": match,
+            "_debug_terms": match_terms,
+            "_debug_scores": match_scores,
+        })
+
+    st.session_state.all_csv_products = all_csv_products
+    st.session_state.match_cache_key = _match_cache_key
+
+all_csv_products = st.session_state.all_csv_products
 
 # Volgorde opslaan in session_state (reset bij nieuwe productenlijst)
 _product_keys = [(m["product_nl"], m["gender_nl"]) for m in all_csv_products]
