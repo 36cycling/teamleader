@@ -864,11 +864,41 @@ if st.session_state.get("_last_tpl_key") != _tpl_cache_key:
     st.session_state._last_tpl_key = _tpl_cache_key
 _tv = st.session_state._tpl_version  # kort alias voor widget-keys
 
+# Standaard sorteervolgorde op producttype
+def _product_sort_priority(product_nl: str) -> int:
+    """Geeft een prioriteitsgetal op basis van de Nederlandse productnaam.
+    Lager = eerder in de lijst. Langere frases eerst checken."""
+    p = product_nl.lower()
+    # Lange broek vóór wielerbroek zodat 'wielerbroek' niet vroegtijdig matcht
+    if any(x in p for x in ("lange wielerbroek", "lange broek", "3/4 wielerbroek", "3/4 broek")):
+        return 5
+    if "wielershirt" in p:
+        return 1
+    if "wielerbroek" in p or "korte broek" in p:
+        return 2
+    if "all season" in p:
+        return 3
+    if any(x in p for x in ("windjack", "windvest", "wind jack")):
+        return 4
+    # 5 = lange broek (zie boven)
+    if any(x in p for x in ("sportshirt", "fanshirt", "running shirt")):
+        return 6
+    if any(x in p for x in ("regenjack", "regenjas", "running jack")):
+        return 7
+    if "polo" in p:
+        return 8
+    return 9  # overige producten
+
 # Volgorde: reset bij nieuw template of nieuwe CSV
 _product_keys = [(m["product_nl"], m["gender_nl"]) for m in all_csv_products]
 _order_key = f"product_order_{_tv}"
 if st.session_state.get(f"product_order_keys_{_tv}") != _product_keys:
-    st.session_state[_order_key] = list(range(len(all_csv_products)))
+    # Sorteer op prioriteit, dan op originele volgorde (stabiel) als tiebreaker
+    sorted_indices = sorted(
+        range(len(all_csv_products)),
+        key=lambda i: _product_sort_priority(all_csv_products[i]["product_nl"]),
+    )
+    st.session_state[_order_key] = sorted_indices
     st.session_state[f"product_order_keys_{_tv}"] = _product_keys
 
 current_order = st.session_state[_order_key]
