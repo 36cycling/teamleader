@@ -873,49 +873,70 @@ if st.session_state.get(f"product_order_keys_{_tv}") != _product_keys:
 
 current_order = st.session_state[_order_key]
 
-# Callbacks voor pijltjes — on_click vermijdt een extra st.rerun()
-def _move_up(pos, okey):
-    o = st.session_state[okey]
-    o[pos], o[pos - 1] = o[pos - 1], o[pos]
+# ── Volgorde-popup (st.dialog = fragment: herlaadt alleen de popup, niet de hele pagina) ──
+@st.dialog("Volgorde aanpassen", width="small")
+def _volgorde_dialog(okey):
+    """Popup met pijltjes die alleen zichzelf opnieuw rendert bij elke klik."""
+    products = st.session_state.get("all_csv_products", [])
+    working = st.session_state.get("_dlg_order", [])
+    n = len(working)
 
-def _move_down(pos, okey):
-    o = st.session_state[okey]
-    o[pos], o[pos + 1] = o[pos + 1], o[pos]
+    def _up(p):
+        o = st.session_state._dlg_order
+        o[p], o[p - 1] = o[p - 1], o[p]
 
-# Alle producten tonen met pijltjes, naam en dropdown
-st.write("**Controleer matches en stel de volgorde in (↑↓ = volgorde op de offerte):**")
+    def _down(p):
+        o = st.session_state._dlg_order
+        o[p], o[p + 1] = o[p + 1], o[p]
+
+    for pos in range(n):
+        prod_idx = working[pos]
+        if prod_idx >= len(products):
+            continue
+        m = products[prod_idx]
+        c1, c2, c3 = st.columns([0.1, 0.1, 1])
+        with c1:
+            st.button("↑", key=f"dlg_up_{pos}", disabled=(pos == 0),
+                      on_click=_up, args=(pos,))
+        with c2:
+            st.button("↓", key=f"dlg_down_{pos}", disabled=(pos == n - 1),
+                      on_click=_down, args=(pos,))
+        with c3:
+            if m.get("matched_to"):
+                st.write(m["csv_product"])
+            else:
+                st.markdown(f":red[{m['csv_product']}]")
+
+    st.divider()
+    c_ok, c_cancel = st.columns(2)
+    with c_ok:
+        if st.button("✅ Bevestigen", type="primary", use_container_width=True):
+            st.session_state[okey] = st.session_state._dlg_order.copy()
+            st.rerun()
+    with c_cancel:
+        if st.button("Annuleren", use_container_width=True):
+            st.rerun()
+
+# Knop om de popup te openen
+if st.button("🔀 Volgorde aanpassen"):
+    st.session_state._dlg_order = current_order.copy()
+    _volgorde_dialog(_order_key)
+
+# Alle producten tonen (naam + dropdown, zonder pijltjes op de hoofdpagina)
+st.write("**Controleer de matches (rood = geen match, kies handmatig via de dropdown):**")
 template_descriptions = ["-- Geen match --"] + [p["offerte_description"] for p in template_products]
 
 corrected_matches = []
 for display_pos, prod_idx in enumerate(current_order):
     m = all_csv_products[prod_idx]
-    n = len(current_order)
 
-    col_up, col_down, col_name, col_match = st.columns([0.12, 0.12, 1.5, 2])
-
-    with col_up:
-        st.button(
-            "↑",
-            key=f"up_{_tv}_{prod_idx}",
-            disabled=(display_pos == 0),
-            on_click=_move_up,
-            args=(display_pos, _order_key),
-        )
-
-    with col_down:
-        st.button(
-            "↓",
-            key=f"down_{_tv}_{prod_idx}",
-            disabled=(display_pos == n - 1),
-            on_click=_move_down,
-            args=(display_pos, _order_key),
-        )
+    col_name, col_match = st.columns([1.5, 2])
 
     with col_name:
         if m["matched_to"]:
-            st.write(f"**{m['csv_product']}**")
+            st.write(f"**{display_pos + 1}. {m['csv_product']}**")
         else:
-            st.write(f":red[**{m['csv_product']}**]")
+            st.write(f":red[**{display_pos + 1}. {m['csv_product']}**]")
             with st.expander("Waarom geen match?"):
                 terms = m.get("_debug_terms", {})
                 scores = m.get("_debug_scores", [])
@@ -933,7 +954,6 @@ for display_pos, prod_idx in enumerate(current_order):
                     st.write("Voeg handmatig een match toe via de dropdown →")
 
     with col_match:
-        # Gebruik auto-match als default, maar ALLEEN als het product bestaat in dit template
         if m["matched_to"] and m["matched_to"] in template_descriptions:
             default_idx = template_descriptions.index(m["matched_to"])
         else:
@@ -947,7 +967,6 @@ for display_pos, prod_idx in enumerate(current_order):
             label_visibility="collapsed",
         )
         if corrected != "-- Geen match --":
-            # Zoek het product op in het HUIDIGE template (niet de cache)
             matched_prod = next(
                 (p for p in template_products if p["offerte_description"] == corrected),
                 None,
