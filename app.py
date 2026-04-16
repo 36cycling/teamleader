@@ -857,16 +857,30 @@ if st.session_state.get("match_cache_key") != _match_cache_key:
 
 all_csv_products = st.session_state.all_csv_products
 
-# Volgorde opslaan in session_state (reset bij nieuwe productenlijst)
-_product_keys = [(m["product_nl"], m["gender_nl"]) for m in all_csv_products]
-if (
-    "product_order" not in st.session_state
-    or st.session_state.get("product_order_keys") != _product_keys
-):
-    st.session_state.product_order = list(range(len(all_csv_products)))
-    st.session_state.product_order_keys = _product_keys
+# Template-versienummer: elke keer dat het template verandert krijgen widgets nieuwe keys,
+# zodat Streamlit geen oude waarden hergebruikt.
+if st.session_state.get("_last_tpl_key") != _tpl_cache_key:
+    st.session_state._tpl_version = st.session_state.get("_tpl_version", 0) + 1
+    st.session_state._last_tpl_key = _tpl_cache_key
+_tv = st.session_state._tpl_version  # kort alias voor widget-keys
 
-current_order = st.session_state.product_order
+# Volgorde: reset bij nieuw template of nieuwe CSV
+_product_keys = [(m["product_nl"], m["gender_nl"]) for m in all_csv_products]
+_order_key = f"product_order_{_tv}"
+if st.session_state.get(f"product_order_keys_{_tv}") != _product_keys:
+    st.session_state[_order_key] = list(range(len(all_csv_products)))
+    st.session_state[f"product_order_keys_{_tv}"] = _product_keys
+
+current_order = st.session_state[_order_key]
+
+# Callbacks voor pijltjes — on_click vermijdt een extra st.rerun()
+def _move_up(pos, okey):
+    o = st.session_state[okey]
+    o[pos], o[pos - 1] = o[pos - 1], o[pos]
+
+def _move_down(pos, okey):
+    o = st.session_state[okey]
+    o[pos], o[pos + 1] = o[pos + 1], o[pos]
 
 # Alle producten tonen met pijltjes, naam en dropdown
 st.write("**Controleer matches en stel de volgorde in (↑↓ = volgorde op de offerte):**")
@@ -880,39 +894,46 @@ for display_pos, prod_idx in enumerate(current_order):
     col_up, col_down, col_name, col_match = st.columns([0.12, 0.12, 1.5, 2])
 
     with col_up:
-        if st.button("↑", key=f"up_{prod_idx}", disabled=(display_pos == 0)):
-            current_order[display_pos], current_order[display_pos - 1] = (
-                current_order[display_pos - 1],
-                current_order[display_pos],
-            )
-            st.rerun()
+        st.button(
+            "↑",
+            key=f"up_{_tv}_{prod_idx}",
+            disabled=(display_pos == 0),
+            on_click=_move_up,
+            args=(display_pos, _order_key),
+        )
 
     with col_down:
-        if st.button("↓", key=f"down_{prod_idx}", disabled=(display_pos == n - 1)):
-            current_order[display_pos], current_order[display_pos + 1] = (
-                current_order[display_pos + 1],
-                current_order[display_pos],
-            )
-            st.rerun()
+        st.button(
+            "↓",
+            key=f"down_{_tv}_{prod_idx}",
+            disabled=(display_pos == n - 1),
+            on_click=_move_down,
+            args=(display_pos, _order_key),
+        )
 
     with col_name:
         if m["matched_to"]:
             st.write(f"**{m['csv_product']}**")
         else:
             st.write(f":red[**{m['csv_product']}**]")
-            # Debug: waarom geen match?
             with st.expander("Waarom geen match?"):
-                terms = m["_debug_terms"]
-                st.write(f"🔍 Zoektermen: `{terms['product_terms']}` | geslacht: `{terms['gender_terms']}` | extra: `{terms['extra_terms'][:5]}`")
-                if m["_debug_scores"]:
+                terms = m.get("_debug_terms", {})
+                scores = m.get("_debug_scores", [])
+                st.write(
+                    f"🔍 Zoektermen: `{terms.get('product_terms', [])}` | "
+                    f"geslacht: `{terms.get('gender_terms', [])}` | "
+                    f"extra: `{terms.get('extra_terms', [])[:5]}`"
+                )
+                if scores:
                     st.write("**Top kandidaten uit template:**")
-                    for name, score, pm in m["_debug_scores"]:
+                    for name, score, *_ in scores:
                         st.write(f"- {name} → score {score}")
                 else:
                     st.write("_Geen enkel template-product scoort op productterm._")
-                    st.write("Controleer of de productnaam vertaalbaar is, of voeg handmatig een match toe via de dropdown →")
+                    st.write("Voeg handmatig een match toe via de dropdown →")
 
     with col_match:
+        # Gebruik auto-match als default, maar ALLEEN als het product bestaat in dit template
         if m["matched_to"] and m["matched_to"] in template_descriptions:
             default_idx = template_descriptions.index(m["matched_to"])
         else:
@@ -922,19 +943,24 @@ for display_pos, prod_idx in enumerate(current_order):
             f"Match voor {m['csv_product']}",
             template_descriptions,
             index=default_idx,
-            key=f"match_{m['product_nl']}_{m['gender_nl']}",
+            key=f"match_{_tv}_{m['product_nl']}_{m['gender_nl']}",
             label_visibility="collapsed",
         )
         if corrected != "-- Geen match --":
-            matched_prod = next(p for p in template_products if p["offerte_description"] == corrected)
-            corrected_matches.append({
-                **m,
-                "matched_to": corrected,
-                "unit_price": matched_prod["offerte_unit_price"],
-                "extended_description": matched_prod["offerte_extended_description"],
-                "template_product": matched_prod,
-                "_order": display_pos,
-            })
+            # Zoek het product op in het HUIDIGE template (niet de cache)
+            matched_prod = next(
+                (p for p in template_products if p["offerte_description"] == corrected),
+                None,
+            )
+            if matched_prod:
+                corrected_matches.append({
+                    **m,
+                    "matched_to": corrected,
+                    "unit_price": matched_prod["offerte_unit_price"],
+                    "extended_description": matched_prod["offerte_extended_description"],
+                    "template_product": matched_prod,
+                    "_order": display_pos,
+                })
 
 # Sorteer op weergavepositie
 corrected_matches.sort(key=lambda x: x.get("_order", 999))
