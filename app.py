@@ -40,6 +40,7 @@ PRODUCT_TRANSLATIONS = [
     ("korte broek", ["bib shorts", "shorts"]),
     ("wielerbroek", ["bib shorts", "shorts"]),
     ("broek", ["bib shorts", "shorts"]),
+    ("fanshirt", ["fan jersey", "running jersey", "sport jersey", "fanshirt"]),
     ("sportshirt", ["running jersey", "sport jersey", "running"]),
     ("all season jack", ["all season jacket"]),
     ("all season jas", ["all season jacket"]),
@@ -96,6 +97,29 @@ WORD_TRANSLATIONS = {
     "club": ["club"],
     "aero": ["aero"],
 }
+
+# Maat-vertalingen (numerieke prefix → lettercode)
+SIZE_TRANSLATIONS = {
+    "3XS": "XXXS",
+    "2XS": "XXS",
+    "2XL": "XXL",
+    "3XL": "XXXL",
+    "4XL": "XXXXL",
+    "5XL": "XXXXXL",
+}
+
+
+def translate_size(size: str) -> str:
+    """Vertaal maatcodes: 2XL → XXL, 3XL → XXXL, etc."""
+    return SIZE_TRANSLATIONS.get(str(size).upper(), size)
+
+
+def normalize_text(text: str) -> str:
+    """Normaliseer tekst voor matching: lowercase, verwijder leestekens."""
+    text = str(text).lower()
+    text = re.sub(r"[-/:\\,;]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 # =============================================
@@ -359,7 +383,7 @@ def translate_to_search_terms(product_nl: str, gender_nl: str) -> Dict:
     - extra_terms: lijst van vertaalde losse woorden
     - original_words: originele woorden die ook letterlijk kunnen matchen
     """
-    product_lower = product_nl.lower().strip()
+    product_lower = normalize_text(product_nl)
 
     # Stap 1: Productvertaling via frases (langste match eerst)
     product_terms = []
@@ -400,42 +424,63 @@ def translate_to_search_terms(product_nl: str, gender_nl: str) -> Dict:
     }
 
 
-def match_product_to_template(product_nl: str, gender_nl: str, template_products: List[Dict]) -> Optional[Dict]:
+def match_product_to_template(
+    product_nl: str,
+    gender_nl: str,
+    template_products: List[Dict],
+    debug: bool = False,
+):
     """Match een Nederlands product naar een template offerte product.
 
-    Woordenboek-aanpak:
-    1. Vertaal alle woorden uit de CSV-productnaam naar Engels
-    2. Scoor elke offerte-beschrijving op basis van hoeveel vertaalde woorden erin voorkomen
-    3. Hoogste score wint
+    Aanpak:
+    1. Vertaal productnaam naar Engelse zoektermen
+    2. Normaliseer template-beschrijvingen (hyphens → spaties etc.)
+    3. Scoor op basis van productterm (verplicht), geslacht (tiebreaker), extra woorden
+    4. Hoogste score wint; geslacht voorkomt NIET een match
     """
     terms = translate_to_search_terms(product_nl, gender_nl)
+    all_scores = []  # voor debug
 
     best_match = None
     best_score = 0.0
 
     for prod in template_products:
-        desc = prod["offerte_description"].lower()
+        raw_desc = prod["offerte_description"]
+        desc = normalize_text(raw_desc)
         score = 0.0
 
-        # Productterm matching (zwaarst: 3 punten per match)
+        # Productterm matching (verplicht: 3 punten per match)
         product_matched = False
         for term in terms["product_terms"]:
-            if term.lower() in desc:
+            if normalize_text(term) in desc:
                 score += 3.0
                 product_matched = True
                 break  # Één productmatch is genoeg
 
-        # Geslacht matching (0.5 punt - alleen tiebreaker)
+        if not product_matched:
+            if debug:
+                all_scores.append((raw_desc, 0.0, False))
+            continue  # Geen productterm match → sla over
+
+        # Geslacht matching (+0.5 tiebreaker, geen penalty voor mismatch)
         gender_matched = False
         for term in terms["gender_terms"]:
-            if term.lower() in desc:
+            if normalize_text(term) in desc:
                 score += 0.5
                 gender_matched = True
                 break
 
+        # Lichte voorkeur TEGEN verkeerd geslacht (maar nooit genoeg om te blokkeren)
+        if terms["gender_terms"] and not gender_matched:
+            other_genders = ["men", "women", "ladies", "kids", "junior"]
+            for g in other_genders:
+                if g in desc and g not in [normalize_text(t) for t in terms["gender_terms"]]:
+                    score -= 0.3
+                    break
+
         # Extra woorden matching (1 punt per woord)
         for term in terms["extra_terms"]:
-            if term.lower() in desc:
+            if normalize_text(term) in desc:
                 score += 1.0
 
         # Originele woorden die letterlijk voorkomen (0.5 punt per woord)
@@ -443,33 +488,28 @@ def match_product_to_template(product_nl: str, gender_nl: str, template_products
             if len(word) >= 3 and word in desc:
                 score += 0.5
 
-        # Penalties
-        # Tight vs shorts verwarring
+        # Penalty: Tight vs shorts verwarring (producttype verwisseling)
         is_tight = any("tight" in t for t in terms["product_terms"])
-        is_shorts = any("shorts" in t or "short" == t for t in terms["product_terms"])
+        is_shorts = any("shorts" in t for t in terms["product_terms"])
         if is_tight and "shorts" in desc and "tight" not in desc:
             score -= 2.0
         if is_shorts and "tight" in desc and "shorts" not in desc:
             score -= 2.0
 
-        # Geslacht mismatch penalty
-        if terms["gender_terms"] and not gender_matched:
-            # Check of het ANDERE geslacht in de beschrijving staat
-            other_genders = ["men", "women", "ladies", "man", "kids", "junior"]
-            for g in other_genders:
-                if g in desc and g not in [t.lower() for t in terms["gender_terms"]]:
-                    score -= 1.5
-                    break
+        if debug:
+            all_scores.append((raw_desc, round(score, 2), product_matched))
 
-        if score > best_score and product_matched:
+        if score > best_score:
             best_score = score
             best_match = prod
 
-    # Productterm moet gematcht zijn (geen match zonder productvertaling)
-    if best_match and best_score >= 3.0:
-        return best_match
+    # Productterm moet gematcht zijn (gegarandeerd door de continue hierboven)
+    result = best_match if (best_match and best_score >= 2.5) else None
 
-    return None
+    if debug:
+        top = sorted(all_scores, key=lambda x: x[1], reverse=True)[:5]
+        return result, terms, top
+    return result
 
 
 def get_deal_quotations(deal_id: str) -> List[Dict]:
@@ -617,7 +657,7 @@ if uploaded_file:
             with col_check1:
                 st.write("**Verdeling per maat (Excel):**")
                 size_df = pd.DataFrame([
-                    {"Maat": str(k), "Aantal": int(v)}
+                    {"Maat": translate_size(str(k)), "Aantal": int(v)}
                     for k, v in sorted(size_breakdown_csv.items(), key=lambda x: -x[1])
                 ])
                 st.dataframe(size_df, use_container_width=True, hide_index=True)
@@ -785,7 +825,9 @@ for _, row in unique_products.iterrows():
     product_nl = row["product_nl"]
     gender_nl = row["gender_nl"]
 
-    match = match_product_to_template(product_nl, gender_nl, template_products)
+    match, match_terms, match_scores = match_product_to_template(
+        product_nl, gender_nl, template_products, debug=True
+    )
 
     display_name = f"{product_nl}"
     if gender_nl:
@@ -799,29 +841,65 @@ for _, row in unique_products.iterrows():
         "unit_price": match["offerte_unit_price"] if match else 0,
         "extended_description": match["offerte_extended_description"] if match else "",
         "template_product": match,
+        "_debug_terms": match_terms,
+        "_debug_scores": match_scores,
     })
 
-# Alle producten tonen met dropdown, volgorde en match
-st.write("**Controleer matches en stel de volgorde in (nummer bepaalt positie op de offerte):**")
+# Volgorde opslaan in session_state (reset bij nieuwe productenlijst)
+_product_keys = [(m["product_nl"], m["gender_nl"]) for m in all_csv_products]
+if (
+    "product_order" not in st.session_state
+    or st.session_state.get("product_order_keys") != _product_keys
+):
+    st.session_state.product_order = list(range(len(all_csv_products)))
+    st.session_state.product_order_keys = _product_keys
+
+current_order = st.session_state.product_order
+
+# Alle producten tonen met pijltjes, naam en dropdown
+st.write("**Controleer matches en stel de volgorde in (↑↓ = volgorde op de offerte):**")
 template_descriptions = ["-- Geen match --"] + [p["offerte_description"] for p in template_products]
 
 corrected_matches = []
-for idx, m in enumerate(all_csv_products):
-    col_order, col_name, col_match = st.columns([0.5, 1.5, 2])
-    with col_order:
-        order = st.number_input(
-            "Positie",
-            min_value=1,
-            max_value=len(all_csv_products),
-            value=idx + 1,
-            key=f"order_{m['product_nl']}_{m['gender_nl']}",
-            label_visibility="collapsed",
-        )
+for display_pos, prod_idx in enumerate(current_order):
+    m = all_csv_products[prod_idx]
+    n = len(current_order)
+
+    col_up, col_down, col_name, col_match = st.columns([0.12, 0.12, 1.5, 2])
+
+    with col_up:
+        if st.button("↑", key=f"up_{prod_idx}", disabled=(display_pos == 0)):
+            current_order[display_pos], current_order[display_pos - 1] = (
+                current_order[display_pos - 1],
+                current_order[display_pos],
+            )
+            st.rerun()
+
+    with col_down:
+        if st.button("↓", key=f"down_{prod_idx}", disabled=(display_pos == n - 1)):
+            current_order[display_pos], current_order[display_pos + 1] = (
+                current_order[display_pos + 1],
+                current_order[display_pos],
+            )
+            st.rerun()
+
     with col_name:
         if m["matched_to"]:
             st.write(f"**{m['csv_product']}**")
         else:
             st.write(f":red[**{m['csv_product']}**]")
+            # Debug: waarom geen match?
+            with st.expander("Waarom geen match?"):
+                terms = m["_debug_terms"]
+                st.write(f"🔍 Zoektermen: `{terms['product_terms']}` | geslacht: `{terms['gender_terms']}` | extra: `{terms['extra_terms'][:5]}`")
+                if m["_debug_scores"]:
+                    st.write("**Top kandidaten uit template:**")
+                    for name, score, pm in m["_debug_scores"]:
+                        st.write(f"- {name} → score {score}")
+                else:
+                    st.write("_Geen enkel template-product scoort op productterm._")
+                    st.write("Controleer of de productnaam vertaalbaar is, of voeg handmatig een match toe via de dropdown →")
+
     with col_match:
         if m["matched_to"] and m["matched_to"] in template_descriptions:
             default_idx = template_descriptions.index(m["matched_to"])
@@ -843,10 +921,10 @@ for idx, m in enumerate(all_csv_products):
                 "unit_price": matched_prod["offerte_unit_price"],
                 "extended_description": matched_prod["offerte_extended_description"],
                 "template_product": matched_prod,
-                "_order": order,
+                "_order": display_pos,
             })
 
-# Sorteer op de gekozen volgorde
+# Sorteer op weergavepositie
 corrected_matches.sort(key=lambda x: x.get("_order", 999))
 st.session_state.final_matches = corrected_matches
 
@@ -892,7 +970,7 @@ if not items_ok or not products_ok:
     with st.expander("Maat-verdeling vergelijking"):
         all_sizes = sorted(set(list(csv_check.get("size_breakdown", {}).keys()) + list(size_breakdown_matched.keys())))
         comparison = pd.DataFrame([{
-            "Maat": s,
+            "Maat": translate_size(str(s)),
             "Excel": int(csv_check.get("size_breakdown", {}).get(s, 0)),
             "Na matching": int(size_breakdown_matched.get(s, 0)),
             "Verschil": int(size_breakdown_matched.get(s, 0)) - int(csv_check.get("size_breakdown", {}).get(s, 0)),
@@ -948,11 +1026,19 @@ if st.button("Maak deal + offerte aan"):
             if product_rows.empty:
                 continue
 
-            # Maten samenvatting uit Totaal kolom
+            # Maten samenvatting uit Totaal kolom (met maatvertaling)
             totaal_text = product_rows["totaal_text"].iloc[0] if "totaal_text" in product_rows.columns else ""
+            if totaal_text:
+                # Vertaal maatcodes in de totaal_text (bijv. "2 2XL" → "2 XXL")
+                def _translate_size_in_text(t):
+                    parts = t.split()
+                    return " ".join(translate_size(p) if not p.isdigit() else p for p in parts)
+                totaal_text = " / ".join(
+                    _translate_size_in_text(chunk) for chunk in totaal_text.split(" / ")
+                )
             if not totaal_text:
                 totaal_text = " / ".join(
-                    f"{r['quantity']} {r['size']}" for _, r in product_rows.iterrows()
+                    f"{r['quantity']} {translate_size(r['size'])}" for _, r in product_rows.iterrows()
                 )
             total_qty = product_rows["quantity"].sum()
 
