@@ -81,20 +81,35 @@ def _tool_zoek_bedrijf(naam: str) -> dict:
     }
 
 
-def _tool_zoek_deals(bedrijf_id: str) -> dict:
-    """Haal de laatste 5 deals op voor een bedrijf."""
+def _tool_zoek_deals(bedrijf_id: str, bedrijf_naam: str) -> dict:
+    """Haal de laatste 5 deals op voor een specifiek bedrijf.
+
+    deals.list heeft geen company_id filter, dus we zoeken op bedrijfsnaam
+    als term en filteren daarna client-side op het exacte bedrijfs-ID.
+    """
     r = post_json("deals.list", {
-        "filter": {"company_id": bedrijf_id},
-        "page": {"size": 5, "number": 1},
+        "filter": {"term": bedrijf_naam},
+        "page": {"size": 50, "number": 1},
         "sort": [{"field": "created_at", "order": "desc"}],
     })
     if not r.ok:
         return {"error": r.text[:200]}
-    items = r.json().get("data", [])
+
+    alle_deals = r.json().get("data", [])
+
+    # Filter client-side op het exacte bedrijfs-ID via lead.customer.id
+    bedrijf_deals = [
+        d for d in alle_deals
+        if d.get("lead", {}).get("customer", {}).get("id") == bedrijf_id
+    ]
+
+    if not bedrijf_deals:
+        return {"error": f"Geen deals gevonden voor bedrijf '{bedrijf_naam}' (ID: {bedrijf_id})."}
+
     return {
         "deals": [
             {"id": d["id"], "titel": d.get("title", ""), "status": d.get("status", "")}
-            for d in items
+            for d in bedrijf_deals[:5]
         ]
     }
 
@@ -223,7 +238,7 @@ def execute_tool(name: str, inputs: dict) -> dict:
     if name == "zoek_bedrijf":
         return _tool_zoek_bedrijf(inputs["naam"])
     if name == "zoek_deals":
-        return _tool_zoek_deals(inputs["bedrijf_id"])
+        return _tool_zoek_deals(inputs["bedrijf_id"], inputs["bedrijf_naam"])
     if name == "haal_recente_producten":
         return _tool_haal_recente_producten(inputs["deal_ids"])
     if name == "maak_deal_en_offerte":
@@ -253,13 +268,14 @@ TOOLS = [
     },
     {
         "name": "zoek_deals",
-        "description": "Haal de laatste 5 deals op voor een bedrijf (gesorteerd op datum, nieuwste eerst).",
+        "description": "Haal de laatste 5 deals op voor een specifiek bedrijf (gesorteerd op datum, nieuwste eerst).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "bedrijf_id": {"type": "string"},
+                "bedrijf_id":   {"type": "string", "description": "Teamleader company ID"},
+                "bedrijf_naam": {"type": "string", "description": "Naam van het bedrijf (voor zoekfilter)"},
             },
-            "required": ["bedrijf_id"],
+            "required": ["bedrijf_id", "bedrijf_naam"],
         },
     },
     {
