@@ -82,9 +82,10 @@ def _tool_zoek_bedrijf(naam: str) -> dict:
 
 
 def _tool_zoek_deals(bedrijf_id: str) -> dict:
+    """Haal de laatste 5 deals op voor een bedrijf."""
     r = post_json("deals.list", {
         "filter": {"company_id": bedrijf_id},
-        "page": {"size": 20, "number": 1},
+        "page": {"size": 5, "number": 1},
         "sort": [{"field": "created_at", "order": "desc"}],
     })
     if not r.ok:
@@ -98,16 +99,13 @@ def _tool_zoek_deals(bedrijf_id: str) -> dict:
     }
 
 
-def _tool_haal_offerte_producten(deal_id: str) -> dict:
+def _haal_producten_uit_deal(deal_id: str, seen: set) -> list:
+    """Helper: haal unieke producten uit de offerte(s) van één deal."""
     r = post_json("deals.info", {"id": deal_id})
     if not r.ok:
-        return {"error": r.text[:200]}
+        return []
     q_refs = r.json().get("data", {}).get("quotations", [])
-    if not q_refs:
-        return {"error": "Geen offertes gevonden voor deze deal."}
-
     producten = []
-    seen = set()
     for ref in q_refs:
         qr = post_json("quotations.info", {"id": ref["id"]})
         if not qr.ok:
@@ -129,8 +127,18 @@ def _tool_haal_offerte_producten(deal_id: str) -> dict:
                     "prijs": price,
                     "extended_description": str(item.get("extended_description", "") or ""),
                 })
+    return producten
 
-    return {"producten": producten}
+
+def _tool_haal_recente_producten(deal_ids: list) -> dict:
+    """Haal alle unieke producten op uit meerdere deals tegelijk."""
+    seen: set = set()
+    producten = []
+    for deal_id in deal_ids:
+        producten.extend(_haal_producten_uit_deal(deal_id, seen))
+    if not producten:
+        return {"error": "Geen producten gevonden in de opgegeven deals."}
+    return {"producten": producten, "aantal_deals": len(deal_ids)}
 
 
 def _tool_maak_deal_en_offerte(
@@ -216,8 +224,8 @@ def execute_tool(name: str, inputs: dict) -> dict:
         return _tool_zoek_bedrijf(inputs["naam"])
     if name == "zoek_deals":
         return _tool_zoek_deals(inputs["bedrijf_id"])
-    if name == "haal_offerte_producten":
-        return _tool_haal_offerte_producten(inputs["deal_id"])
+    if name == "haal_recente_producten":
+        return _tool_haal_recente_producten(inputs["deal_ids"])
     if name == "maak_deal_en_offerte":
         return _tool_maak_deal_en_offerte(
             inputs["bedrijf_id"],
@@ -245,7 +253,7 @@ TOOLS = [
     },
     {
         "name": "zoek_deals",
-        "description": "Haal recente deals op voor een bedrijf om de template deal te identificeren.",
+        "description": "Haal de laatste 5 deals op voor een bedrijf (gesorteerd op datum, nieuwste eerst).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -255,17 +263,21 @@ TOOLS = [
         },
     },
     {
-        "name": "haal_offerte_producten",
+        "name": "haal_recente_producten",
         "description": (
-            "Haal alle producten (met prijs en beschrijving) op uit de offerte(s) van een deal. "
-            "Gebruik dit op de template deal om te weten welke producten beschikbaar zijn."
+            "Haal alle unieke producten (met prijs en beschrijving) op uit meerdere deals tegelijk. "
+            "Geef alle deal-IDs van de laatste bestellingen mee om het volledige productaanbod te zien."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "deal_id": {"type": "string"},
+                "deal_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Lijst van deal-IDs waaruit producten opgehaald worden",
+                },
             },
-            "required": ["deal_id"],
+            "required": ["deal_ids"],
         },
     },
     {
@@ -312,9 +324,10 @@ Je spreekt altijd Nederlands. Wees bondig – geen onnodige uitleg.
 
 Werkwijze bij een offerte-verzoek:
 1. Zoek het bedrijf op (zoek_bedrijf). Bij meerdere treffers: vraag welke.
-2. Zoek de deals op (zoek_deals). Kies de meest recente of de deal met "template" in de titel.
-3. Haal de beschikbare producten op uit die deal (haal_offerte_producten).
-4. Match de gevraagde producten aan de template-producten (gebruik onderstaande vertaalregels).
+2. Haal de laatste 5 deals op (zoek_deals).
+3. Haal alle producten op uit ALLE 5 deals tegelijk (haal_recente_producten met alle deal-IDs).
+   Dit geeft het volledige productaanbod van de laatste bestellingen voor dit bedrijf.
+4. Match de gevraagde producten aan de beschikbare producten (gebruik onderstaande vertaalregels).
 5. Toon een beknopt overzicht (product | maten | prijs) en vraag bevestiging.
 6. Na "ja" of bevestiging: maak de deal en offerte aan (maak_deal_en_offerte).
 
