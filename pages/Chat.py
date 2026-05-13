@@ -3,28 +3,18 @@
 import streamlit as st
 import anthropic
 import json
-import os
-import requests
-import datetime
-from typing import Optional, List, Dict
+from typing import Optional
+
+from tl_api import post_json, exchange_or_refresh_token, teamleader_oauth_url
 
 st.set_page_config(page_title="36 Cycling – Chat Offerte", page_icon="💬", layout="wide")
 
 # =============================================
-#   CONFIG
-# =============================================
-CORRECT_PASSWORD  = st.secrets["auth"]["password"]
-CLIENT_ID         = st.secrets["CLIENT_ID"]
-CLIENT_SECRET     = st.secrets["CLIENT_SECRET"]
-REDIRECT_URI      = "https://www.kwatta.com/teamleader_redirect.html"
-TL_AUTH_URL       = "https://focus.teamleader.eu/oauth2/access_token"
-TL_API_BASE       = "https://api.focus.teamleader.eu"
-TOKENS_FILE       = "teamleader_tokens.json"
-ANTHROPIC_API_KEY = st.secrets.get("ANTHROPIC_API_KEY", "")
-
-# =============================================
 #   WACHTWOORD
 # =============================================
+CORRECT_PASSWORD  = st.secrets["auth"]["password"]
+ANTHROPIC_API_KEY = st.secrets.get("ANTHROPIC_API_KEY", "")
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -38,55 +28,29 @@ if not st.session_state.authenticated:
     st.stop()
 
 # =============================================
-#   TOKEN MANAGEMENT
+#   TEAMLEADER VERBINDING
+#   Deelt de token met de Bestelbon-pagina via session_state
 # =============================================
-def _load_tokens():
-    if os.path.exists(TOKENS_FILE):
-        try:
-            with open(TOKENS_FILE) as f:
-                return json.load(f)
-        except Exception:
-            return None
-    return None
+if "access_token" not in st.session_state:
+    token = exchange_or_refresh_token()
+    if token:
+        st.session_state.access_token = token
+        st.session_state.connected = True
+    else:
+        st.session_state.connected = False
 
-
-def _save_tokens(access_token: str, refresh_token: str):
-    with open(TOKENS_FILE, "w") as f:
-        json.dump({"access_token": access_token, "refresh_token": refresh_token}, f)
-
-
-def _get_valid_token() -> Optional[str]:
-    tokens = _load_tokens()
-    if not tokens:
-        return None
-    r = requests.post(TL_AUTH_URL, data={
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI,
-        "grant_type": "refresh_token",
-        "refresh_token": tokens["refresh_token"],
-    })
-    if r.ok:
-        new = r.json()
-        _save_tokens(new["access_token"], new["refresh_token"])
-        return new["access_token"]
-    return tokens.get("access_token")
-
-
-def _tl(endpoint: str, payload: dict, token: str) -> requests.Response:
-    return requests.post(
-        f"{TL_API_BASE}/{endpoint}",
-        json=payload,
-        headers={"Authorization": f"Bearer {token}"},
+if not st.session_state.get("connected"):
+    auth_url = teamleader_oauth_url()
+    st.markdown(
+        f"""
+        <div style="padding:12px; background:#fff7cc; border-left:4px solid #ffa500; border-radius:5px;">
+        <b>Teamleader moet autoriseren.</b><br><br>
+        Ga naar de <a href="/" target="_self"><b>Bestelbon-pagina</b></a> om in te loggen,
+        of <a href="{auth_url}" target="_blank"><b>klik hier om direct te verbinden</b></a>.
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-
-
-# =============================================
-#   TOKEN CHECK
-# =============================================
-_token = _get_valid_token()
-if not _token:
-    st.warning("Geen Teamleader-verbinding. Ga eerst naar de **Bestelbon**-pagina om in te loggen.")
     st.stop()
 
 if not ANTHROPIC_API_KEY:
@@ -94,13 +58,14 @@ if not ANTHROPIC_API_KEY:
     st.stop()
 
 # =============================================
-#   TEAMLEADER HELPER FUNCTIES (tools)
+#   TEAMLEADER TOOL-FUNCTIES
+#   Gebruikt post_json uit tl_api (zelfde token als de Bestelbon-pagina)
 # =============================================
 def _tool_zoek_bedrijf(naam: str) -> dict:
-    r = _tl("companies.list", {
+    r = post_json("companies.list", {
         "filter": {"term": naam},
         "page": {"size": 5, "number": 1},
-    }, _token)
+    })
     if not r.ok:
         return {"error": r.text[:200]}
     items = r.json().get("data", [])
@@ -117,11 +82,11 @@ def _tool_zoek_bedrijf(naam: str) -> dict:
 
 
 def _tool_zoek_deals(bedrijf_id: str) -> dict:
-    r = _tl("deals.list", {
+    r = post_json("deals.list", {
         "filter": {"company_id": bedrijf_id},
         "page": {"size": 20, "number": 1},
         "sort": [{"field": "created_at", "order": "desc"}],
-    }, _token)
+    })
     if not r.ok:
         return {"error": r.text[:200]}
     items = r.json().get("data", [])
@@ -134,19 +99,17 @@ def _tool_zoek_deals(bedrijf_id: str) -> dict:
 
 
 def _tool_haal_offerte_producten(deal_id: str) -> dict:
-    # Haal deal op voor offerte-referenties
-    r = _tl("deals.info", {"id": deal_id}, _token)
+    r = post_json("deals.info", {"id": deal_id})
     if not r.ok:
         return {"error": r.text[:200]}
-    deal_data = r.json().get("data", {})
-    q_refs = deal_data.get("quotations", [])
+    q_refs = r.json().get("data", {}).get("quotations", [])
     if not q_refs:
         return {"error": "Geen offertes gevonden voor deze deal."}
 
     producten = []
     seen = set()
     for ref in q_refs:
-        qr = _tl("quotations.info", {"id": ref["id"]}, _token)
+        qr = post_json("quotations.info", {"id": ref["id"]})
         if not qr.ok:
             continue
         for group in qr.json().get("data", {}).get("grouped_lines", []):
@@ -179,11 +142,11 @@ def _tool_maak_deal_en_offerte(
     titel = deal_titel or f"{bedrijf_naam} – Chat bestelling"
 
     # Deal aanmaken
-    r = _tl("deals.create", {
+    r = post_json("deals.create", {
         "title": titel,
         "lead": {"customer": {"type": "company", "id": bedrijf_id}},
         "source": {"type": "api"},
-    }, _token)
+    })
     if not r.ok:
         return {"error": f"Deal aanmaken mislukt: {r.text[:300]}"}
     deal_id = r.json().get("data", {}).get("id")
@@ -192,7 +155,7 @@ def _tool_maak_deal_en_offerte(
 
     # BTW tarief ophalen (21%)
     vat_id = None
-    vr = _tl("taxRates.list", {}, _token)
+    vr = post_json("taxRates.list", {})
     if vr.ok:
         for t in vr.json().get("data", []):
             if abs(t.get("rate", 0) - 0.21) < 0.001:
@@ -227,14 +190,13 @@ def _tool_maak_deal_en_offerte(
         return {"error": "Geen producten om toe te voegen."}
 
     # Offerte aanmaken
-    qr = _tl("quotations.create", {
+    qr = post_json("quotations.create", {
         "deal_id": deal_id,
         "title": titel,
         "text": f"Offerte voor {bedrijf_naam}",
         "currency": {"code": "EUR", "exchange_rate": 1.0},
         "grouped_lines": grouped_lines,
-    }, _token)
-
+    })
     if not qr.ok:
         return {"error": f"Offerte aanmaken mislukt: {qr.text[:300]}"}
 
@@ -323,9 +285,9 @@ TOOLS = [
                     "items": {
                         "type": "object",
                         "properties": {
-                            "beschrijving":          {"type": "string",  "description": "Exacte productnaam uit de template"},
-                            "prijs":                 {"type": "number",  "description": "Eenheidsprijs excl. BTW"},
-                            "extended_description":  {"type": "string",  "description": "Uitgebreide beschrijving uit de template (mag leeg zijn)"},
+                            "beschrijving":         {"type": "string",  "description": "Exacte productnaam uit de template"},
+                            "prijs":                {"type": "number",  "description": "Eenheidsprijs excl. BTW"},
+                            "extended_description": {"type": "string",  "description": "Uitgebreide beschrijving (mag leeg)"},
                             "maten": {
                                 "type": "object",
                                 "description": "Maat → aantal, bijv. {\"L\": 2, \"XL\": 1}",
@@ -349,10 +311,10 @@ Je bent een vlotte assistent voor 36 Cycling die Teamleader-offertes aanmaakt.
 Je spreekt altijd Nederlands. Wees bondig – geen onnodige uitleg.
 
 Werkwijze bij een offerte-verzoek:
-1. Zoek het bedrijf op (zoek_bedrijf). Als er meerdere treffer zijn, vraag welke.
+1. Zoek het bedrijf op (zoek_bedrijf). Bij meerdere treffers: vraag welke.
 2. Zoek de deals op (zoek_deals). Kies de meest recente of de deal met "template" in de titel.
 3. Haal de beschikbare producten op uit die deal (haal_offerte_producten).
-4. Match de gevraagde producten aan de template-producten op basis van onderstaande vertaalregels.
+4. Match de gevraagde producten aan de template-producten (gebruik onderstaande vertaalregels).
 5. Toon een beknopt overzicht (product | maten | prijs) en vraag bevestiging.
 6. Na "ja" of bevestiging: maak de deal en offerte aan (maak_deal_en_offerte).
 
@@ -366,8 +328,8 @@ armstukken → sleeves  |  beenstukken → legs  |  sokken → socks
 Geslacht: man/heren → men  |  vrouw/dames → ladies
 Maten: 2XL → XXL  |  3XL → XXXL  |  4XL → XXXXL
 
-Geef de matched productnaam, prijs en extended_description EXACT over uit de template.
-Als je een product niet kunt matchen, zeg dat dan en vraag om verduidelijking.
+Geef productnaam, prijs en extended_description EXACT over uit de template.
+Bij onbekend product: zeg dat en vraag om verduidelijking.
 """
 
 # =============================================
@@ -393,7 +355,6 @@ def run_agent(messages: list) -> tuple[str, list]:
 
         if response.stop_reason == "tool_use":
             messages = messages + [{"role": "assistant", "content": response.content}]
-
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
@@ -403,7 +364,6 @@ def run_agent(messages: list) -> tuple[str, list]:
                         "tool_use_id": block.id,
                         "content": json.dumps(result, ensure_ascii=False),
                     })
-
             messages = messages + [{"role": "user", "content": tool_results}]
 
         else:
@@ -416,38 +376,30 @@ def run_agent(messages: list) -> tuple[str, list]:
 st.title("💬 Offerte aanmaken via chat")
 st.caption("Bijv: _maak offerte voor Exofex – wielershirt heren L en XL, wielerbroek dames M_")
 
-# Session state initialiseren
 if "chat_ui" not in st.session_state:
-    st.session_state.chat_ui = []       # [{"role": "user"|"assistant", "content": str}]
+    st.session_state.chat_ui = []
 if "chat_api" not in st.session_state:
-    st.session_state.chat_api = []      # berichten voor de Anthropic API (inclusief tool calls)
+    st.session_state.chat_api = []
 
-# Bestaande berichten tonen
 for msg in st.session_state.chat_ui:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Chat-invoer
 if prompt := st.chat_input("Maak een offerte aan…"):
-    # Gebruikersbericht tonen
     st.session_state.chat_ui.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Voeg toe aan API-berichten
     st.session_state.chat_api.append({"role": "user", "content": prompt})
 
-    # Agent uitvoeren
     with st.chat_message("assistant"):
         with st.spinner("Bezig…"):
             response_text, updated_api_msgs = run_agent(st.session_state.chat_api)
         st.markdown(response_text)
 
-    # Opslaan
     st.session_state.chat_ui.append({"role": "assistant", "content": response_text})
     st.session_state.chat_api = updated_api_msgs
 
-# Nieuw gesprek knop
 if st.session_state.chat_ui:
     st.divider()
     if st.button("🗑️ Nieuw gesprek"):

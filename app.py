@@ -1,24 +1,22 @@
 import streamlit as st
 import pandas as pd
-import json
-import requests
-import os
 import re
 from typing import Optional, Dict, List
-from difflib import SequenceMatcher
+
+from tl_api import (
+    post_json,
+    exchange_or_refresh_token,
+    teamleader_oauth_url,
+    REDIRECT_URI,
+    TEAMLEADER_API_BASE,
+    TOKENS_FILE,
+)
 
 # ============ PAGINA-INSTELLINGEN ============
 st.set_page_config(page_title="36 Cycling - Bestelbon Tool", page_icon="🚴", layout="wide")
 
 # ============ CONFIG ============
 CORRECT_PASSWORD = st.secrets["auth"]["password"]
-CLIENT_ID = st.secrets["CLIENT_ID"]
-CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
-
-REDIRECT_URI = "https://www.kwatta.com/teamleader_redirect.html"
-TEAMLEADER_AUTH_URL = "https://focus.teamleader.eu/oauth2/access_token"
-TEAMLEADER_API_BASE = "https://api.focus.teamleader.eu"
-TOKENS_FILE = "teamleader_tokens.json"
 
 # ============ PRODUCT MAPPING ============
 # Nederlands → Engels productname mapping (zonder geslacht)
@@ -122,59 +120,6 @@ def normalize_text(text: str) -> str:
     return text
 
 
-# =============================================
-#   TOKEN STORAGE
-# =============================================
-def save_tokens(access_token: str, refresh_token: str):
-    with open(TOKENS_FILE, "w") as f:
-        json.dump({"access_token": access_token, "refresh_token": refresh_token}, f)
-
-
-def load_tokens():
-    if os.path.exists(TOKENS_FILE):
-        try:
-            with open(TOKENS_FILE) as f:
-                return json.load(f)
-        except Exception:
-            return None
-    return None
-
-
-# =============================================
-#   EXCHANGE + REFRESH TOKEN
-# =============================================
-def exchange_or_refresh_token(auth_code: Optional[str] = None):
-    session = requests.Session()
-    tokens = load_tokens()
-
-    data_base = {
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI,
-    }
-
-    if tokens and tokens.get("refresh_token"):
-        data = dict(data_base)
-        data.update({"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]})
-        r = session.post(TEAMLEADER_AUTH_URL, data=data)
-        if r.ok:
-            new = r.json()
-            save_tokens(new["access_token"], new["refresh_token"])
-            return new["access_token"]
-
-    if auth_code:
-        data = dict(data_base)
-        data.update({"grant_type": "authorization_code", "code": auth_code})
-        r = session.post(TEAMLEADER_AUTH_URL, data=data)
-        if r.ok:
-            new = r.json()
-            save_tokens(new["access_token"], new["refresh_token"])
-            return new["access_token"]
-        else:
-            st.error("Ongeldige Authorization Code.")
-            return None
-
-    return None
 
 
 # =============================================
@@ -216,13 +161,6 @@ if "access_token" not in st.session_state:
         st.session_state.connected = False
 
 
-def teamleader_oauth_url():
-    return (
-        "https://focus.teamleader.eu/oauth2/authorize"
-        f"?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
-    )
-
-
 if not st.session_state.get("connected"):
     auth_url = teamleader_oauth_url()
     st.markdown(
@@ -237,28 +175,6 @@ if not st.session_state.get("connected"):
     st.stop()
 
 
-# =============================================
-#   API HELPERS
-# =============================================
-def post_json(endpoint, payload):
-    token = st.session_state.access_token
-    url = f"{TEAMLEADER_API_BASE}/{endpoint}"
-    r = requests.post(
-        url,
-        json=payload,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-    )
-    if r.status_code == 401:
-        # Token expired, try refresh
-        new_token = exchange_or_refresh_token(None)
-        if new_token:
-            st.session_state.access_token = new_token
-            r = requests.post(
-                url,
-                json=payload,
-                headers={"Authorization": f"Bearer {new_token}", "Content-Type": "application/json"},
-            )
-    return r
 
 
 # =============================================
