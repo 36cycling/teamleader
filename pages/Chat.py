@@ -19,12 +19,15 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-    pwd = st.text_input("Wachtwoord", type="password")
-    if pwd == CORRECT_PASSWORD:
-        st.session_state.authenticated = True
-        st.rerun()
-    elif pwd:
-        st.error("Onjuist wachtwoord")
+    with st.form("login_form"):
+        pwd = st.text_input("Wachtwoord", type="password")
+        submitted = st.form_submit_button("Inloggen", type="primary", use_container_width=True)
+    if submitted:
+        if pwd == CORRECT_PASSWORD:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Onjuist wachtwoord")
     st.stop()
 
 # =============================================

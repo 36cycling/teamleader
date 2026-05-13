@@ -140,14 +140,23 @@ if "oauth_code" in query_params:
 # =============================================
 #   LOGIN
 # =============================================
-st.sidebar.title("Inloggen")
-password = st.sidebar.text_input("Wachtwoord", type="password")
+if "sidebar_auth" not in st.session_state:
+    st.session_state.sidebar_auth = False
 
-if password != CORRECT_PASSWORD:
-    st.sidebar.error("Ongeldig wachtwoord.")
+st.sidebar.title("Inloggen")
+if not st.session_state.sidebar_auth:
+    with st.sidebar.form("login_form"):
+        password = st.text_input("Wachtwoord", type="password")
+        submitted = st.form_submit_button("Inloggen", use_container_width=True)
+    if submitted:
+        if password == CORRECT_PASSWORD:
+            st.session_state.sidebar_auth = True
+            st.rerun()
+        else:
+            st.sidebar.error("Ongeldig wachtwoord.")
     st.stop()
 
-st.sidebar.success("Ingelogd")
+st.sidebar.success("Ingelogd ✓")
 
 # =============================================
 #   INITIAL TOKEN
