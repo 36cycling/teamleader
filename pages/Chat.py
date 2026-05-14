@@ -12,9 +12,61 @@ from tl_api import (
     teamleader_oauth_url,
     get_current_user_id,
     get_deal_source_id,
+    get_deal_custom_field_id,
 )
 
 st.set_page_config(page_title="36 Cycling – Chat Offerte", layout="wide")
+
+# =============================================
+#   WHATSAPP-STIJL VOOR DE CHAT
+# =============================================
+st.markdown(
+    """
+    <style>
+    /* Pagina-achtergrond grijs (WhatsApp-stijl) */
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"] {
+        background-color: #ebebeb;
+    }
+
+    /* Verberg avatar-iconen bij chatberichten */
+    [data-testid="chatAvatarIcon-user"],
+    [data-testid="chatAvatarIcon-assistant"],
+    [data-testid="stChatMessageAvatarUser"],
+    [data-testid="stChatMessageAvatarAssistant"] {
+        display: none !important;
+    }
+
+    /* Bubbel-vormgeving voor alle chatberichten */
+    [data-testid="stChatMessage"] {
+        padding: 10px 14px !important;
+        border-radius: 12px !important;
+        margin-bottom: 6px !important;
+        max-width: 75% !important;
+        width: fit-content !important;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.08);
+        border: none !important;
+    }
+
+    /* Mijn berichten (user): groen, rechts uitgelijnd */
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]),
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+        background-color: #dcf8c6 !important;
+        margin-left: auto !important;
+        margin-right: 0 !important;
+    }
+
+    /* Systeem (assistant): wit, links uitgelijnd */
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]),
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+        background-color: #ffffff !important;
+        margin-left: 0 !important;
+        margin-right: auto !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # =============================================
 #   WACHTWOORD
@@ -210,10 +262,11 @@ def _tool_maak_deal_en_offerte(
 ) -> dict:
     titel = deal_titel or f"{bedrijf_naam} – Chat bestelling"
 
-    # Verantwoordelijke = huidige ingelogde Teamleader-gebruiker
+    # Verantwoordelijke + Account manager = huidige ingelogde Teamleader-gebruiker
     # Herkomst (source) = "Al eens besteld"
-    user_id   = get_current_user_id()
-    source_id = get_deal_source_id("Al eens besteld")
+    user_id     = get_current_user_id()
+    source_id   = get_deal_source_id("Al eens besteld")
+    am_field_id = get_deal_custom_field_id("Account manager")
 
     deal_create_payload = {
         "title": titel,
@@ -223,6 +276,8 @@ def _tool_maak_deal_en_offerte(
         deal_create_payload["responsible_user_id"] = user_id
     if source_id:
         deal_create_payload["source_id"] = source_id
+    if user_id and am_field_id:
+        deal_create_payload["custom_fields"] = [{"id": am_field_id, "value": user_id}]
 
     # Deal aanmaken
     r = post_json("deals.create", deal_create_payload)

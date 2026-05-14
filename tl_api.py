@@ -150,3 +150,21 @@ def get_deal_source_id(name: str) -> Optional[str]:
                 st.session_state[cache_key] = s["id"]
                 return s["id"]
     return None
+
+
+def get_deal_custom_field_id(label: str) -> Optional[str]:
+    """Haal het ID van een custom field op deal-niveau op via zijn label (case-insensitive, gecached)."""
+    cache_key = f"deal_cf_id::{label.lower()}"
+    if st.session_state.get(cache_key):
+        return st.session_state[cache_key]
+    r = post_json("customFieldDefinitions.list", {
+        "filter": {"context": "deal"},
+        "page": {"size": 100, "number": 1},
+    })
+    if r.ok:
+        for cf in r.json().get("data", []):
+            cf_label = (cf.get("label") or cf.get("name") or "").strip().lower()
+            if cf_label == label.lower():
+                st.session_state[cache_key] = cf["id"]
+                return cf["id"]
+    return None

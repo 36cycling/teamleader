@@ -10,6 +10,7 @@ from tl_api import (
     teamleader_oauth_url,
     get_current_user_id,
     get_deal_source_id,
+    get_deal_custom_field_id,
     REDIRECT_URI,
     TEAMLEADER_API_BASE,
     TOKENS_FILE,
@@ -1020,10 +1021,11 @@ if st.button("Maak deal + offerte aan"):
     final_matches = st.session_state.final_matches
 
     with st.spinner("Deal aanmaken..."):
-        # Verantwoordelijke = huidige ingelogde Teamleader-gebruiker
+        # Verantwoordelijke + Account manager = huidige ingelogde Teamleader-gebruiker
         # Herkomst (source) = "Al eens besteld"
-        user_id   = get_current_user_id()
-        source_id = get_deal_source_id("Al eens besteld")
+        user_id     = get_current_user_id()
+        source_id   = get_deal_source_id("Al eens besteld")
+        am_field_id = get_deal_custom_field_id("Account manager")
 
         deal_payload = {
             "title": new_deal_title,
@@ -1033,6 +1035,8 @@ if st.button("Maak deal + offerte aan"):
             deal_payload["responsible_user_id"] = user_id
         if source_id:
             deal_payload["source_id"] = source_id
+        if user_id and am_field_id:
+            deal_payload["custom_fields"] = [{"id": am_field_id, "value": user_id}]
 
         r = post_json("deals.create", deal_payload)
         if not r.ok:
