@@ -14,7 +14,7 @@ from tl_api import (
     get_deal_source_id,
 )
 
-st.set_page_config(page_title="36 Cycling – Chat Offerte", page_icon="💬", layout="wide")
+st.set_page_config(page_title="36 Cycling – Chat Offerte", layout="wide")
 
 # =============================================
 #   WACHTWOORD
@@ -498,7 +498,7 @@ def run_agent(messages: list) -> tuple[str, list]:
 # =============================================
 #   STREAMLIT UI
 # =============================================
-st.title("💬 Offerte aanmaken via chat")
+st.title("Offerte aanmaken via chat")
 st.caption("Bijv: _maak offerte voor Exofex – wielershirt heren L en XL, wielerbroek dames M_")
 
 if "chat_ui" not in st.session_state:
