@@ -1,6 +1,7 @@
 """Chat-interface voor het aanmaken van offertes via natuurlijke taal."""
 
 import streamlit as st
+import streamlit.components.v1 as components
 import anthropic
 import json
 from typing import Optional
@@ -44,15 +45,17 @@ if "access_token" not in st.session_state:
 
 if not st.session_state.get("connected"):
     auth_url = teamleader_oauth_url()
-    st.markdown(
+    st.info("Even verbinden met Teamleader…")
+    components.html(
         f"""
-        <div style="padding:12px; background:#fff7cc; border-left:4px solid #ffa500; border-radius:5px;">
-        <b>Teamleader moet autoriseren.</b><br><br>
-        Ga naar de <a href="/" target="_self"><b>Bestelbon-pagina</b></a> om in te loggen,
-        of <a href="{auth_url}" target="_blank"><b>klik hier om direct te verbinden</b></a>.
-        </div>
+        <script>
+        (window.top || window).location.href = "{auth_url}";
+        </script>
+        <noscript>
+            <a href="{auth_url}" target="_top">Klik hier om handmatig te verbinden</a>
+        </noscript>
         """,
-        unsafe_allow_html=True,
+        height=0,
     )
     st.stop()
 

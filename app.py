@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import re
 from typing import Optional, Dict, List
@@ -158,6 +159,19 @@ if not st.session_state.sidebar_auth:
 
 st.sidebar.success("Ingelogd ✓")
 
+# Refresh-token tonen zodat de gebruiker het naar Streamlit secrets kan kopiëren.
+# Eenmaal in secrets → app herverbindt automatisch na elke herstart, geen klikken nodig.
+with st.sidebar.expander("⚙️ Refresh token (voor secrets)"):
+    _rt = st.session_state.get("latest_refresh_token", "")
+    if _rt:
+        st.code(_rt, language=None)
+        st.caption(
+            "Plak deze waarde in Streamlit Cloud → Settings → Secrets als "
+            "`TEAMLEADER_REFRESH_TOKEN = \"...\"` om herhaaldelijk inloggen te vermijden."
+        )
+    else:
+        st.caption("Refresh-token nog niet beschikbaar in deze sessie.")
+
 # =============================================
 #   INITIAL TOKEN
 # =============================================
@@ -172,14 +186,18 @@ if "access_token" not in st.session_state:
 
 if not st.session_state.get("connected"):
     auth_url = teamleader_oauth_url()
-    st.markdown(
+    st.info("Even verbinden met Teamleader…")
+    # Auto-redirect: gebruik window.top zodat het ook werkt als Streamlit in een iframe draait.
+    components.html(
         f"""
-        <div style="padding:12px; background:#fff7cc; border-left:4px solid #ffa500; border-radius:5px;">
-        <b>Teamleader moet opnieuw autoriseren.</b><br><br>
-        <a href="{auth_url}" target="_blank"><b>Klik hier om te verbinden</b></a>.
-        </div>
+        <script>
+        (window.top || window).location.href = "{auth_url}";
+        </script>
+        <noscript>
+            <a href="{auth_url}" target="_top">Klik hier om handmatig te verbinden</a>
+        </noscript>
         """,
-        unsafe_allow_html=True,
+        height=0,
     )
     st.stop()
 

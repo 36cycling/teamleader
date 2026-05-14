@@ -24,15 +24,36 @@ CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 def save_tokens(access_token: str, refresh_token: str):
     with open(TOKENS_FILE, "w") as f:
         json.dump({"access_token": access_token, "refresh_token": refresh_token}, f)
+    # Onthoud het laatste refresh-token in session_state zodat de UI het kan tonen
+    # (de gebruiker kan dit naar Streamlit secrets kopiëren om opnieuw inloggen te vermijden).
+    try:
+        st.session_state["latest_refresh_token"] = refresh_token
+    except Exception:
+        pass
 
 
 def load_tokens() -> Optional[dict]:
+    """Laad tokens — eerst uit lokaal bestand, daarna uit Streamlit secrets als fallback.
+
+    Streamlit Cloud wist het bestand bij elke herstart, dus `TEAMLEADER_REFRESH_TOKEN`
+    in secrets fungeert als backup zodat de OAuth-dans niet steeds opnieuw nodig is.
+    """
+    # 1. Lokaal bestand (verdwijnt op Streamlit Cloud bij herstart)
     if os.path.exists(TOKENS_FILE):
         try:
             with open(TOKENS_FILE) as f:
                 return json.load(f)
         except Exception:
-            return None
+            pass
+
+    # 2. Fallback: refresh-token uit Streamlit secrets
+    try:
+        secret_refresh = st.secrets.get("TEAMLEADER_REFRESH_TOKEN", "")
+    except Exception:
+        secret_refresh = ""
+    if secret_refresh:
+        return {"access_token": "", "refresh_token": secret_refresh}
+
     return None
 
 
