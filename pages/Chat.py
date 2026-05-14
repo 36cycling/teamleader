@@ -23,10 +23,11 @@ st.set_page_config(page_title="36 Cycling – Chat Offerte", layout="wide")
 st.markdown(
     """
     <style>
-    /* Pagina-achtergrond grijs (WhatsApp-stijl) */
+    /* Pagina-achtergrond grijs (WhatsApp-stijl) — werkt ook in dark mode */
     [data-testid="stAppViewContainer"],
-    [data-testid="stMain"] {
-        background-color: #ebebeb;
+    [data-testid="stMain"],
+    .stApp {
+        background-color: #ebebeb !important;
     }
 
     /* Verberg avatar-iconen bij chatberichten */
@@ -48,6 +49,18 @@ st.markdown(
         border: none !important;
     }
 
+    /* Forceer donkere tekstkleur binnen bubbels (anders onleesbaar in dark mode) */
+    [data-testid="stChatMessage"],
+    [data-testid="stChatMessage"] *,
+    [data-testid="stChatMessage"] p,
+    [data-testid="stChatMessage"] li,
+    [data-testid="stChatMessage"] span,
+    [data-testid="stChatMessage"] strong,
+    [data-testid="stChatMessage"] em,
+    [data-testid="stChatMessage"] code {
+        color: #111 !important;
+    }
+
     /* Mijn berichten (user): groen, rechts uitgelijnd */
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]),
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
@@ -62,6 +75,24 @@ st.markdown(
         background-color: #ffffff !important;
         margin-left: 0 !important;
         margin-right: auto !important;
+    }
+
+    /* Welkomstbubbel die de titel vervangt — zelfde stijl als assistant-bubbel */
+    .wa-welcome {
+        background-color: #ffffff;
+        color: #111 !important;
+        padding: 10px 14px;
+        border-radius: 12px;
+        margin: 0 0 16px 0;
+        max-width: 75%;
+        width: fit-content;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.08);
+        word-wrap: break-word;
+        font-size: 1rem;
+        line-height: 1.4;
+    }
+    .wa-welcome * {
+        color: #111 !important;
     }
     </style>
     """,
@@ -556,8 +587,10 @@ def run_agent(messages: list) -> tuple[str, list]:
 # =============================================
 #   STREAMLIT UI
 # =============================================
-st.title("Offerte aanmaken via chat")
-st.caption("Bijv: _maak offerte voor Exofex – wielershirt heren L en XL, wielerbroek dames M_")
+st.markdown(
+    '<div class="wa-welcome">Voor wie gaan we een offerte aanmaken en met welke producten en maten?</div>',
+    unsafe_allow_html=True,
+)
 
 if "chat_ui" not in st.session_state:
     st.session_state.chat_ui = []
