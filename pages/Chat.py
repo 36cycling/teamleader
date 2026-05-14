@@ -84,14 +84,38 @@ def _tool_zoek_bedrijf(naam: str) -> dict:
     }
 
 
-def _tool_zoek_deals(bedrijf_id: str, bedrijf_naam: str) -> dict:
-    """Haal de laatste 5 deals op voor een specifiek bedrijf.
+def _tool_zoek_contact(naam: str) -> dict:
+    """Zoek een contactpersoon op naam in Teamleader."""
+    r = post_json("contacts.list", {
+        "filter": {"term": naam},
+        "page": {"size": 5, "number": 1},
+    })
+    if not r.ok:
+        return {"error": r.text[:200]}
+    items = r.json().get("data", [])
+    return {
+        "contacten": [
+            {
+                "id": c["id"],
+                "naam": f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(),
+                "bedrijf": (c.get("company") or {}).get("name", ""),
+            }
+            for c in items
+        ]
+    }
 
-    deals.list heeft geen company_id filter, dus we zoeken op bedrijfsnaam
-    als term en filteren daarna client-side op het exacte bedrijfs-ID.
+
+def _tool_zoek_deals(zoekterm: str, klant_id: Optional[str] = None, klant_type: str = "company") -> dict:
+    """Haal de laatste 5 deals op.
+
+    - zoekterm: bedrijfsnaam, contactnaam of deelnaam — gebruikt als term-filter
+    - klant_id: optioneel, filtert daarna client-side op lead.customer.id
+    - klant_type: "company" of "contact" (alleen relevant bij klant_id)
+
+    Zonder klant_id worden alle deals teruggegeven die overeenkomen met de zoekterm.
     """
     r = post_json("deals.list", {
-        "filter": {"term": bedrijf_naam},
+        "filter": {"term": zoekterm},
         "page": {"size": 50, "number": 1},
         "sort": [{"field": "created_at", "order": "desc"}],
     })
@@ -100,19 +124,29 @@ def _tool_zoek_deals(bedrijf_id: str, bedrijf_naam: str) -> dict:
 
     alle_deals = r.json().get("data", [])
 
-    # Filter client-side op het exacte bedrijfs-ID via lead.customer.id
-    bedrijf_deals = [
-        d for d in alle_deals
-        if d.get("lead", {}).get("customer", {}).get("id") == bedrijf_id
-    ]
+    if klant_id:
+        # Filter op exacte klant (bedrijf of contactpersoon)
+        deals = [
+            d for d in alle_deals
+            if d.get("lead", {}).get("customer", {}).get("id") == klant_id
+        ]
+        if not deals:
+            return {"error": f"Geen deals gevonden voor '{zoekterm}' (ID: {klant_id})."}
+    else:
+        deals = alle_deals
 
-    if not bedrijf_deals:
-        return {"error": f"Geen deals gevonden voor bedrijf '{bedrijf_naam}' (ID: {bedrijf_id})."}
+    if not deals:
+        return {"error": f"Geen deals gevonden voor '{zoekterm}'."}
 
     return {
         "deals": [
-            {"id": d["id"], "titel": d.get("title", ""), "status": d.get("status", "")}
-            for d in bedrijf_deals[:5]
+            {
+                "id": d["id"],
+                "titel": d.get("title", ""),
+                "status": d.get("status", ""),
+                "klant": d.get("lead", {}).get("customer", {}).get("type", ""),
+            }
+            for d in deals[:5]
         ]
     }
 
@@ -240,8 +274,14 @@ def _tool_maak_deal_en_offerte(
 def execute_tool(name: str, inputs: dict) -> dict:
     if name == "zoek_bedrijf":
         return _tool_zoek_bedrijf(inputs["naam"])
+    if name == "zoek_contact":
+        return _tool_zoek_contact(inputs["naam"])
     if name == "zoek_deals":
-        return _tool_zoek_deals(inputs["bedrijf_id"], inputs["bedrijf_naam"])
+        return _tool_zoek_deals(
+            inputs["zoekterm"],
+            inputs.get("klant_id"),
+            inputs.get("klant_type", "company"),
+        )
     if name == "haal_recente_producten":
         return _tool_haal_recente_producten(inputs["deal_ids"])
     if name == "maak_deal_en_offerte":
@@ -270,15 +310,46 @@ TOOLS = [
         },
     },
     {
-        "name": "zoek_deals",
-        "description": "Haal de laatste 5 deals op voor een specifiek bedrijf (gesorteerd op datum, nieuwste eerst).",
+        "name": "zoek_contact",
+        "description": (
+            "Zoek een contactpersoon op naam in Teamleader Focus. "
+            "Gebruik dit als de deal onder een persoon staat (niet onder een bedrijf)."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "bedrijf_id":   {"type": "string", "description": "Teamleader company ID"},
-                "bedrijf_naam": {"type": "string", "description": "Naam van het bedrijf (voor zoekfilter)"},
+                "naam": {"type": "string", "description": "Naam (of deel) van de contactpersoon"},
             },
-            "required": ["bedrijf_id", "bedrijf_naam"],
+            "required": ["naam"],
+        },
+    },
+    {
+        "name": "zoek_deals",
+        "description": (
+            "Haal deals op via een zoekterm (bedrijfsnaam, contactnaam of dealnaam), "
+            "gesorteerd op datum (nieuwste eerst). "
+            "Geef klant_id mee om client-side te filteren op een specifiek bedrijf of contact. "
+            "Zonder klant_id worden alle deals teruggegeven die overeenkomen met de zoekterm "
+            "(handig om op dealnaam te zoeken)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "zoekterm": {
+                    "type": "string",
+                    "description": "Zoekterm: bedrijfsnaam, contactnaam of deelnaam",
+                },
+                "klant_id": {
+                    "type": "string",
+                    "description": "Optioneel: Teamleader ID van bedrijf of contact",
+                },
+                "klant_type": {
+                    "type": "string",
+                    "enum": ["company", "contact"],
+                    "description": "Type klant (standaard: company)",
+                },
+            },
+            "required": ["zoekterm"],
         },
     },
     {
@@ -342,10 +413,13 @@ Je bent een vlotte assistent voor 36 Cycling die Teamleader-offertes aanmaakt.
 Je spreekt altijd Nederlands. Wees bondig – geen onnodige uitleg.
 
 Werkwijze bij een offerte-verzoek:
-1. Zoek het bedrijf op (zoek_bedrijf). Bij meerdere treffers: vraag welke.
-2. Haal de laatste 5 deals op (zoek_deals).
+1. Zoek de klant op:
+   a. Als een bedrijfsnaam is opgegeven → zoek_bedrijf. Bij meerdere treffers: vraag welke.
+   b. Als een persoonsnaam is opgegeven (geen bedrijf) → zoek_contact. Bij meerdere treffers: vraag welke.
+   c. Als alleen een dealnaam/ordernummer is opgegeven → zoek_deals direct met die term (zonder klant_id).
+2. Haal de laatste 5 deals op (zoek_deals met klant_id van het gevonden bedrijf of contact).
 3. Haal alle producten op uit ALLE 5 deals tegelijk (haal_recente_producten met alle deal-IDs).
-   Dit geeft het volledige productaanbod van de laatste bestellingen voor dit bedrijf.
+   Dit geeft het volledige productaanbod van de laatste bestellingen.
 4. Match de gevraagde producten aan de beschikbare producten (gebruik onderstaande vertaalregels).
 5. Toon een beknopt overzicht (product | maten | prijs) en vraag bevestiging.
 6. Na "ja" of bevestiging: maak de deal en offerte aan (maak_deal_en_offerte).
