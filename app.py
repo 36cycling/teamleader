@@ -1036,7 +1036,10 @@ if st.button("Maak deal + offerte aan"):
         if source_id:
             deal_payload["source_id"] = source_id
         if user_id and am_field_id:
-            deal_payload["custom_fields"] = [{"id": am_field_id, "value": user_id}]
+            # User-type custom fields verwachten {type, id}, niet een platte UUID.
+            deal_payload["custom_fields"] = [
+                {"id": am_field_id, "value": {"type": "user", "id": user_id}}
+            ]
 
         r = post_json("deals.create", deal_payload)
         if not r.ok:
