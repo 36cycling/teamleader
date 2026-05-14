@@ -6,7 +6,13 @@ import anthropic
 import json
 from typing import Optional
 
-from tl_api import post_json, exchange_or_refresh_token, teamleader_oauth_url
+from tl_api import (
+    post_json,
+    exchange_or_refresh_token,
+    teamleader_oauth_url,
+    get_current_user_id,
+    get_deal_source_id,
+)
 
 st.set_page_config(page_title="36 Cycling – Chat Offerte", page_icon="💬", layout="wide")
 
@@ -204,12 +210,22 @@ def _tool_maak_deal_en_offerte(
 ) -> dict:
     titel = deal_titel or f"{bedrijf_naam} – Chat bestelling"
 
-    # Deal aanmaken
-    r = post_json("deals.create", {
+    # Verantwoordelijke = huidige ingelogde Teamleader-gebruiker
+    # Herkomst (source) = "Al eens besteld"
+    user_id   = get_current_user_id()
+    source_id = get_deal_source_id("Al eens besteld")
+
+    deal_create_payload = {
         "title": titel,
         "lead": {"customer": {"type": "company", "id": bedrijf_id}},
-        "source": {"type": "api"},
-    })
+    }
+    if user_id:
+        deal_create_payload["responsible_user_id"] = user_id
+    if source_id:
+        deal_create_payload["source_id"] = source_id
+
+    # Deal aanmaken
+    r = post_json("deals.create", deal_create_payload)
     if not r.ok:
         return {"error": f"Deal aanmaken mislukt: {r.text[:300]}"}
     deal_id = r.json().get("data", {}).get("id")

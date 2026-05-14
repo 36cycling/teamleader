@@ -120,3 +120,33 @@ def post_json(endpoint: str, payload: dict) -> requests.Response:
             r = requests.post(url, json=payload, headers=headers)
 
     return r
+
+
+# =============================================
+#   HELPERS — INGELOGDE GEBRUIKER & DEAL-SOURCE
+# =============================================
+def get_current_user_id() -> Optional[str]:
+    """Haal het ID van de huidige ingelogde Teamleader-gebruiker op (gecached per sessie)."""
+    if st.session_state.get("current_user_id"):
+        return st.session_state.current_user_id
+    r = post_json("users.me", {})
+    if r.ok:
+        uid = r.json().get("data", {}).get("id")
+        if uid:
+            st.session_state.current_user_id = uid
+            return uid
+    return None
+
+
+def get_deal_source_id(name: str) -> Optional[str]:
+    """Haal het ID van een deal-source (Herkomst) op naam (case-insensitive, gecached)."""
+    cache_key = f"deal_source_id::{name.lower()}"
+    if st.session_state.get(cache_key):
+        return st.session_state[cache_key]
+    r = post_json("dealSources.list", {"page": {"size": 100, "number": 1}})
+    if r.ok:
+        for s in r.json().get("data", []):
+            if s.get("name", "").strip().lower() == name.lower():
+                st.session_state[cache_key] = s["id"]
+                return s["id"]
+    return None

@@ -8,6 +8,8 @@ from tl_api import (
     post_json,
     exchange_or_refresh_token,
     teamleader_oauth_url,
+    get_current_user_id,
+    get_deal_source_id,
     REDIRECT_URI,
     TEAMLEADER_API_BASE,
     TOKENS_FILE,
@@ -1018,11 +1020,20 @@ if st.button("Maak deal + offerte aan"):
     final_matches = st.session_state.final_matches
 
     with st.spinner("Deal aanmaken..."):
+        # Verantwoordelijke = huidige ingelogde Teamleader-gebruiker
+        # Herkomst (source) = "Al eens besteld"
+        user_id   = get_current_user_id()
+        source_id = get_deal_source_id("Al eens besteld")
+
         deal_payload = {
             "title": new_deal_title,
             "lead": {"customer": {"type": "company", "id": selected_company_id}},
-            "source": {"type": "api"},
         }
+        if user_id:
+            deal_payload["responsible_user_id"] = user_id
+        if source_id:
+            deal_payload["source_id"] = source_id
+
         r = post_json("deals.create", deal_payload)
         if not r.ok:
             st.error(f"Fout bij aanmaken deal: {r.text}")
