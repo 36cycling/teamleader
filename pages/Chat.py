@@ -23,11 +23,12 @@ st.set_page_config(page_title="36 Cycling – Chat Offerte", layout="wide")
 st.markdown(
     """
     <style>
-    /* Pagina-achtergrond grijs (WhatsApp-stijl) — werkt ook in dark mode */
+    /* Pagina-achtergrond zwart */
     [data-testid="stAppViewContainer"],
     [data-testid="stMain"],
     .stApp {
-        background-color: #ebebeb !important;
+        background-color: #000000 !important;
+        color: #e6e6e6 !important;
     }
 
     /* Verberg avatar-iconen bij chatberichten */
@@ -38,18 +39,21 @@ st.markdown(
         display: none !important;
     }
 
-    /* Bubbel-vormgeving voor alle chatberichten */
+    /* Alle chatberichten: donkergrijze bubbel, geen rechts-uitlijning meer */
     [data-testid="stChatMessage"] {
         padding: 10px 14px !important;
         border-radius: 12px !important;
         margin-bottom: 6px !important;
         max-width: 75% !important;
         width: fit-content !important;
-        box-shadow: 0 1px 1px rgba(0,0,0,0.08);
+        background-color: #1f1f1f !important;
+        margin-left: 0 !important;
+        margin-right: auto !important;
         border: none !important;
+        box-shadow: none !important;
     }
 
-    /* Forceer donkere tekstkleur binnen bubbels (anders onleesbaar in dark mode) */
+    /* Lichte tekstkleur binnen bubbels */
     [data-testid="stChatMessage"],
     [data-testid="stChatMessage"] *,
     [data-testid="stChatMessage"] p,
@@ -58,41 +62,37 @@ st.markdown(
     [data-testid="stChatMessage"] strong,
     [data-testid="stChatMessage"] em,
     [data-testid="stChatMessage"] code {
-        color: #111 !important;
+        color: #e6e6e6 !important;
     }
 
-    /* Mijn berichten (user): groen, rechts uitgelijnd */
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]),
-    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
-        background-color: #dcf8c6 !important;
-        margin-left: auto !important;
-        margin-right: 0 !important;
-    }
-
-    /* Systeem (assistant): wit, links uitgelijnd */
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]),
-    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
-        background-color: #ffffff !important;
-        margin-left: 0 !important;
-        margin-right: auto !important;
-    }
-
-    /* Welkomstbubbel die de titel vervangt — zelfde stijl als assistant-bubbel */
+    /* Welkomstbubbel: zelfde stijl als andere bubbels */
     .wa-welcome {
-        background-color: #ffffff;
-        color: #111 !important;
+        background-color: #1f1f1f;
+        color: #e6e6e6 !important;
         padding: 10px 14px;
         border-radius: 12px;
         margin: 0 0 16px 0;
         max-width: 75%;
         width: fit-content;
-        box-shadow: 0 1px 1px rgba(0,0,0,0.08);
         word-wrap: break-word;
         font-size: 1rem;
         line-height: 1.4;
     }
     .wa-welcome * {
-        color: #111 !important;
+        color: #e6e6e6 !important;
+    }
+
+    /* Chat-invoervak: zelfde donkere stijl als de bubbels */
+    [data-testid="stChatInput"],
+    [data-testid="stChatInput"] > div,
+    [data-testid="stChatInput"] textarea,
+    [data-baseweb="textarea"] {
+        background-color: #1f1f1f !important;
+        color: #e6e6e6 !important;
+        border-color: #1f1f1f !important;
+    }
+    [data-testid="stChatInput"] textarea::placeholder {
+        color: #888 !important;
     }
     </style>
     """,
