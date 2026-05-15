@@ -94,6 +94,57 @@ st.markdown(
     [data-testid="stChatInput"] textarea::placeholder {
         color: #888 !important;
     }
+
+    /* Wachtwoord-veld + andere text inputs in dark mode */
+    [data-testid="stTextInput"] input,
+    [data-testid="stTextInputRootElement"] input,
+    input[type="text"],
+    input[type="password"] {
+        background-color: #1f1f1f !important;
+        color: #e6e6e6 !important;
+        border-color: #333 !important;
+    }
+    [data-testid="stTextInput"] input::placeholder {
+        color: #888 !important;
+    }
+
+    /* Labels en captions */
+    [data-testid="stWidgetLabel"],
+    [data-testid="stWidgetLabel"] *,
+    label,
+    .stMarkdown,
+    .stMarkdown p,
+    [data-testid="stCaptionContainer"] {
+        color: #e6e6e6 !important;
+    }
+
+    /* Knoppen */
+    .stButton button,
+    [data-testid="stFormSubmitButton"] button,
+    [data-testid="baseButton-primary"] {
+        background-color: #1f77b4 !important;
+        color: #ffffff !important;
+        border: none !important;
+    }
+    .stButton button:hover,
+    [data-testid="stFormSubmitButton"] button:hover {
+        background-color: #2890d6 !important;
+    }
+
+    /* Sidebar (indien aanwezig) */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebarContent"] {
+        background-color: #0a0a0a !important;
+    }
+    [data-testid="stSidebar"] * {
+        color: #e6e6e6 !important;
+    }
+
+    /* Streamlit alerts/info */
+    [data-testid="stAlert"] {
+        background-color: #1f1f1f !important;
+        color: #e6e6e6 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
