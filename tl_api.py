@@ -2,6 +2,7 @@
 
 import json
 import os
+import urllib.parse
 import requests
 import streamlit as st
 from typing import Optional
@@ -95,10 +96,13 @@ def exchange_or_refresh_token(auth_code: Optional[str] = None) -> Optional[str]:
 
 
 def teamleader_oauth_url() -> str:
-    return (
-        "https://focus.teamleader.eu/oauth2/authorize"
-        f"?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
-    )
+    """Bouw de Teamleader OAuth authorize-URL met netjes geëncodeerde parameters."""
+    params = urllib.parse.urlencode({
+        "response_type": "code",
+        "client_id": CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,
+    })
+    return f"https://focus.teamleader.eu/oauth2/authorize?{params}"
 
 
 # =============================================
