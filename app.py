@@ -189,15 +189,14 @@ if "access_token" not in st.session_state:
 
 if not st.session_state.get("connected"):
     auth_url = teamleader_oauth_url()
-    # Auto-redirect via meta refresh in de hoofdpagina (st.markdown rendert in
-    # het top-level document, geen iframe-sandbox restricties). Plus een
-    # zichtbare knop als fallback voor browsers die meta-refresh in body negeren.
+    # Open in een nieuw tabblad (target="_blank") om iframe-sandbox-issues
+    # te omzeilen. Teamleader's auth-subdomain stuurt X-Frame-Options: DENY,
+    # dus navigeren binnen een iframe wordt geweigerd.
     st.markdown(
         f"""
-        <meta http-equiv="refresh" content="0; url={auth_url}">
         <div style="padding:20px 0; text-align:center;">
-          <p style="margin-bottom:16px; font-size:1rem;">Verbinden met Teamleader…</p>
-          <a href="{auth_url}" target="_top" style="
+          <p style="margin-bottom:16px; font-size:1rem;">Verbinden met Teamleader:</p>
+          <a href="{auth_url}" target="_blank" rel="noopener" style="
               display:inline-block;
               padding:12px 28px;
               background-color:#1f77b4;
@@ -207,7 +206,10 @@ if not st.session_state.get("connected"):
               font-weight:600;
               font-size:1rem;
               box-shadow:0 2px 6px rgba(0,0,0,0.15);
-          ">→ Inloggen bij Teamleader</a>
+          ">→ Inloggen bij Teamleader (nieuw tabblad)</a>
+          <p style="margin-top:14px; font-size:0.85rem; color:#666;">
+            Na inloggen kun je dit tabblad sluiten en hier verder gaan.
+          </p>
         </div>
         """,
         unsafe_allow_html=True,

@@ -136,10 +136,9 @@ if not st.session_state.get("connected"):
     auth_url = teamleader_oauth_url()
     st.markdown(
         f"""
-        <meta http-equiv="refresh" content="0; url={auth_url}">
         <div style="padding:20px 0; text-align:center;">
-          <p style="margin-bottom:16px; font-size:1rem;">Verbinden met Teamleader…</p>
-          <a href="{auth_url}" target="_top" style="
+          <p style="margin-bottom:16px; font-size:1rem;">Verbinden met Teamleader:</p>
+          <a href="{auth_url}" target="_blank" rel="noopener" style="
               display:inline-block;
               padding:12px 28px;
               background-color:#1f77b4;
@@ -149,7 +148,10 @@ if not st.session_state.get("connected"):
               font-weight:600;
               font-size:1rem;
               box-shadow:0 2px 6px rgba(0,0,0,0.15);
-          ">→ Inloggen bij Teamleader</a>
+          ">→ Inloggen bij Teamleader (nieuw tabblad)</a>
+          <p style="margin-top:14px; font-size:0.85rem; color:#666;">
+            Na inloggen kun je dit tabblad sluiten en hier verder gaan.
+          </p>
         </div>
         """,
         unsafe_allow_html=True,
