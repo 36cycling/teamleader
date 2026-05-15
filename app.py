@@ -189,18 +189,28 @@ if "access_token" not in st.session_state:
 
 if not st.session_state.get("connected"):
     auth_url = teamleader_oauth_url()
-    st.info("Even verbinden met Teamleader…")
-    # Auto-redirect: gebruik window.top zodat het ook werkt als Streamlit in een iframe draait.
-    components.html(
+    # Auto-redirect via meta refresh in de hoofdpagina (st.markdown rendert in
+    # het top-level document, geen iframe-sandbox restricties). Plus een
+    # zichtbare knop als fallback voor browsers die meta-refresh in body negeren.
+    st.markdown(
         f"""
-        <script>
-        (window.top || window).location.href = "{auth_url}";
-        </script>
-        <noscript>
-            <a href="{auth_url}" target="_top">Klik hier om handmatig te verbinden</a>
-        </noscript>
+        <meta http-equiv="refresh" content="0; url={auth_url}">
+        <div style="padding:20px 0; text-align:center;">
+          <p style="margin-bottom:16px; font-size:1rem;">Verbinden met Teamleader…</p>
+          <a href="{auth_url}" target="_top" style="
+              display:inline-block;
+              padding:12px 28px;
+              background-color:#1f77b4;
+              color:white !important;
+              text-decoration:none;
+              border-radius:8px;
+              font-weight:600;
+              font-size:1rem;
+              box-shadow:0 2px 6px rgba(0,0,0,0.15);
+          ">→ Inloggen bij Teamleader</a>
+        </div>
         """,
-        height=0,
+        unsafe_allow_html=True,
     )
     st.stop()
 
