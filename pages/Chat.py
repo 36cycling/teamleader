@@ -39,30 +39,41 @@ st.markdown(
         display: none !important;
     }
 
-    /* Alle chatberichten: donkergrijze bubbel, geen rechts-uitlijning meer */
+    /* Alle chatberichten: bubbel-vorm, geen rechts-uitlijning */
     [data-testid="stChatMessage"] {
         padding: 10px 14px !important;
         border-radius: 12px !important;
         margin-bottom: 6px !important;
         max-width: 75% !important;
         width: fit-content !important;
-        background-color: #1f1f1f !important;
         margin-left: 0 !important;
         margin-right: auto !important;
         border: none !important;
         box-shadow: none !important;
     }
 
-    /* Lichte tekstkleur binnen bubbels */
-    [data-testid="stChatMessage"],
-    [data-testid="stChatMessage"] *,
-    [data-testid="stChatMessage"] p,
-    [data-testid="stChatMessage"] li,
-    [data-testid="stChatMessage"] span,
-    [data-testid="stChatMessage"] strong,
-    [data-testid="stChatMessage"] em,
-    [data-testid="stChatMessage"] code {
+    /* Assistant-berichten: donkergrijs met lichte tekst */
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]),
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+        background-color: #1f1f1f !important;
+    }
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]),
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) *,
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]),
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) * {
         color: #e6e6e6 !important;
+    }
+
+    /* User-berichten (mijn): WhatsApp-groen met zwarte tekst */
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]),
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+        background-color: #dcf8c6 !important;
+    }
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]),
+    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) *,
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]),
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) * {
+        color: #111 !important;
     }
 
     /* Welkomstbubbel: zelfde stijl als andere bubbels */
