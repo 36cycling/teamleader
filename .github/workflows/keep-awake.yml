@@ -1,0 +1,74 @@
+name: Keep Streamlit app awake
+
+# Houdt de Streamlit Community Cloud-app wakker door elke 15 minuten
+# een echte (headless) browser de pagina te laten openen en — indien
+# de app sliep — op "Yes, get this app back up!" te klikken.
+#
+# Een gewone HTTP-ping werkt hier NIET: een slapende app geeft HTTP 200
+# terug met de slaap-pagina, en de wake-knop vereist een echte
+# browser/websocket-interactie. Vandaar Playwright.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # elke 15 minuten (best-effort van GitHub)
+  workflow_dispatch:          # handmatig startbaar via de Actions-tab
+
+# Voorkom dat trage runs zich opstapelen
+concurrency:
+  group: keep-awake
+  cancel-in-progress: true
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright (Chromium)
+        run: |
+          pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Open app en klik wake-knop indien nodig
+        env:
+          APP_URL: "https://36teamleader.streamlit.app"
+        run: |
+          python - <<'PY'
+          import os
+          from playwright.sync_api import sync_playwright
+
+          url = os.environ["APP_URL"]
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page()
+              page.goto(url, wait_until="domcontentloaded", timeout=60000)
+              # Geef Streamlit even om te renderen
+              page.wait_for_timeout(8000)
+
+              clicked = False
+              for label in [
+                  "Yes, get this app back up!",
+                  "get this app back up",
+              ]:
+                  try:
+                      btn = page.get_by_role("button", name=label, exact=False)
+                      if btn.count() > 0 and btn.first.is_visible():
+                          btn.first.click()
+                          clicked = True
+                          break
+                  except Exception:
+                      pass
+
+              if clicked:
+                  # Wacht tot de app daadwerkelijk opstart
+                  page.wait_for_timeout(45000)
+                  print("App lag te slapen -> wake-knop geklikt.")
+              else:
+                  print("App was al wakker (geen knop gevonden).")
+
+              browser.close()
+          PY
