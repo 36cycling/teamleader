@@ -1,5 +1,8 @@
 .streamlit/secrets.toml
 teamleader_tokens.json
+gcp_service_account.json
+*service_account*.json
+provisie_data.json
 __pycache__/
 *.pyc
 .env
