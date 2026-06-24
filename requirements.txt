@@ -3,5 +3,3 @@ pandas
 requests
 openpyxl
 anthropic
-gspread
-google-auth
